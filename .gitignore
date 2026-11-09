@@ -5,3 +5,6 @@ Thumbs.db
 
 # Skill instalada localmente para esta sesión de Claude Code — herramienta, no contenido del proyecto.
 .claude/
+
+# Capturas de pantalla usadas para depurar en vivo con Claude Code — diagnóstico, no contenido del proyecto.
+Captura de pantalla*.png
