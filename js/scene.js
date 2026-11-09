@@ -8,11 +8,18 @@ const TINTA = "#3a2a10";
 const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este punto; preferible recortar que ilegible
 
 // Fila foto+nombre en el frente: columna izquierda para el medallón, derecha
-// para el nombre. El diámetro de la foto es fracción fija de w — igual que
-// margenSuperior, NO se multiplica por escala, para que el medallón nunca se
-// achique si el resto del contenido fuerza una escala de texto más chica.
+// para el nombre. El diámetro es fracción fija de w — igual que margenSuperior,
+// NO se multiplica por escala, para que el medallón nunca se achique si el
+// resto del contenido fuerza una escala de texto más chica.
 const ANCHO_COLUMNA_FOTO = 0.42;
-const DIAMETRO_FOTO = 0.34;
+// DIAMETRO_FOTO es el diámetro EXTERIOR del anillo dorado, no el de la foto —
+// el anillo sobresale respecto al radio de la foto (SOBRESALIDA_ANILLO), y si
+// el layout solo reservara espacio para la foto, el anillo podía terminar
+// chocando contra el marco dorado del fondo de la tarjeta.
+const DIAMETRO_FOTO = 0.3;
+const SOBRESALIDA_ANILLO = 1.1;
+const MARGEN_MARCO = 34; // mismo inset que usa dibujarMarcoDorado
+const HOLGURA_MARCO = 10; // aire extra entre el anillo y el marco
 
 export function hayWebGL() {
   try {
@@ -187,13 +194,42 @@ function dividirLineas(ctx, texto, anchoMax) {
   return lineas;
 }
 
+// Para encabezados cortos (el nombre): dividirLineas es "greedy" y puede
+// dejar una última línea corta y suelta. Busca el ancho más angosto que
+// siga produciendo el mismo número de líneas que al ancho máximo disponible
+// — reparte el texto de forma más pareja, igual criterio que "text-wrap:
+// balance" en CSS, aplicado a mano porque acá dibujamos en un canvas.
+function dividirLineasBalanceadas(ctx, texto, anchoMax) {
+  const lineasBase = dividirLineas(ctx, texto, anchoMax);
+  if (lineasBase.length <= 1) return lineasBase;
+
+  let bajo = anchoMax * 0.5;
+  let alto = anchoMax;
+  for (let i = 0; i < 8; i++) {
+    const medio = (bajo + alto) / 2;
+    const lineas = dividirLineas(ctx, texto, medio);
+    if (lineas.length <= lineasBase.length) {
+      alto = medio;
+    } else {
+      bajo = medio;
+    }
+  }
+  return dividirLineas(ctx, texto, alto);
+}
+
 function dibujarMarcoDorado(ctx, w, h) {
   ctx.strokeStyle = "rgba(201, 162, 39, 0.8)";
   ctx.lineWidth = 2;
-  ctx.strokeRect(34, 34, w - 68, h - 68);
+  ctx.strokeRect(MARGEN_MARCO, MARGEN_MARCO, w - MARGEN_MARCO * 2, h - MARGEN_MARCO * 2);
 
   ctx.fillStyle = ORO;
-  for (const [ex, ey] of [[34, 34], [w - 34, 34], [34, h - 34], [w - 34, h - 34]]) {
+  const esquinas = [
+    [MARGEN_MARCO, MARGEN_MARCO],
+    [w - MARGEN_MARCO, MARGEN_MARCO],
+    [MARGEN_MARCO, h - MARGEN_MARCO],
+    [w - MARGEN_MARCO, h - MARGEN_MARCO],
+  ];
+  for (const [ex, ey] of esquinas) {
     ctx.beginPath();
     ctx.arc(ex, ey, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -273,11 +309,18 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   const anchoColumnaFoto = w * ANCHO_COLUMNA_FOTO;
   const anchoColumnaNombre = w - anchoColumnaFoto;
   const centroXNombre = anchoColumnaFoto + anchoColumnaNombre / 2;
-  const lineasNombre = dividirLineas(ctx, config.nombre, anchoColumnaNombre * 0.86);
+  const lineasNombre = dividirLineasBalanceadas(ctx, config.nombre, anchoColumnaNombre * 0.86);
   const alturaNombre = lineasNombre.length * 60 * escala;
-  const diametroFoto = w * DIAMETRO_FOTO; // fijo, no se multiplica por escala
-  const alturaFila = Math.max(diametroFoto, alturaNombre);
+  // diametroAnillo es el footprint visual COMPLETO del medallón (ya incluye
+  // el sobresaliente del anillo dorado) — fijo, no se multiplica por escala.
+  const diametroAnillo = w * DIAMETRO_FOTO;
+  const radioAnillo = diametroAnillo / 2;
+  const radioFoto = radioAnillo / SOBRESALIDA_ANILLO; // radio real de la foto (sin el anillo)
+  const alturaFila = Math.max(diametroAnillo, alturaNombre);
   const offsetNombre = (alturaFila - alturaNombre) / 2; // centra el nombre si la foto es más alta
+  // Centrado con margen explícito respecto al marco dorado del fondo —no al
+  // punto medio de la columna— para que el anillo nunca lo toque ni lo cruce.
+  const centroXFoto = MARGEN_MARCO + HOLGURA_MARCO + radioAnillo;
 
   if (dibujar) {
     const gradiente = ctx.createLinearGradient(
@@ -296,9 +339,10 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
 
   // Zona del medallón en coordenadas locales de canvas (antes del offset de
   // centrado vertical) — crearTexturaCara la convierte a fracciones 0–1,
-  // igual que zonaEnlace, y crearTarjetaFlotante la usa para ubicar la
-  // malla 3D real del medallón.
-  const zonaFoto = { cx: anchoColumnaFoto / 2, cy: y + alturaFila / 2, r: diametroFoto / 2 };
+  // igual que zonaEnlace, y crearTarjetaFlotante la usa para ubicar la malla
+  // 3D real del medallón. r es el radio de la FOTO (sin el anillo) — el
+  // anillo se escala a partir de ese mismo radio dentro de crearFotoMedallon.
+  const zonaFoto = { cx: centroXFoto, cy: y + alturaFila / 2, r: radioFoto };
 
   y += alturaFila + 24 * escala;
 
@@ -489,7 +533,7 @@ function crearFotoMedallon(config) {
   const grupoFoto = new THREE.Group();
 
   const anillo = new THREE.Mesh(
-    new THREE.RingGeometry(0.95, 1.15, 48),
+    new THREE.RingGeometry(0.97, SOBRESALIDA_ANILLO, 48),
     new THREE.MeshBasicMaterial({ color: ORO_OSCURO })
   );
   anillo.position.z = -0.001;
