@@ -310,14 +310,28 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   const anchoColumnaNombre = w - anchoColumnaFoto;
   const centroXNombre = anchoColumnaFoto + anchoColumnaNombre / 2;
   const lineasNombre = dividirLineasBalanceadas(ctx, config.nombre, anchoColumnaNombre * 0.86);
-  const alturaNombre = lineasNombre.length * 60 * escala;
+
+  // Alto VISUAL real del bloque de nombre — no "líneas × alto de línea".
+  // Con textBaseline="alphabetic", fillText dibuja arriba Y debajo de la
+  // coordenada Y que recibe; measureText da el ascenso/descenso real de la
+  // fuente actual, así el centrado contra la foto usa lo que realmente se
+  // pinta en vez de una aproximación a ciegas (con nombres de 3 líneas el
+  // desfase era visible: la foto quedaba centrada más abajo que el nombre).
+  const metricasNombre = ctx.measureText(lineasNombre[0] || config.nombre);
+  const ascensoNombre = metricasNombre.actualBoundingBoxAscent || 58 * escala * 0.75;
+  const descensoNombre = metricasNombre.actualBoundingBoxDescent || 58 * escala * 0.2;
+  const alturaVisualNombre = (lineasNombre.length - 1) * 60 * escala + ascensoNombre + descensoNombre;
+
   // diametroAnillo es el footprint visual COMPLETO del medallón (ya incluye
   // el sobresaliente del anillo dorado) — fijo, no se multiplica por escala.
   const diametroAnillo = w * DIAMETRO_FOTO;
   const radioAnillo = diametroAnillo / 2;
   const radioFoto = radioAnillo / SOBRESALIDA_ANILLO; // radio real de la foto (sin el anillo)
-  const alturaFila = Math.max(diametroAnillo, alturaNombre);
-  const offsetNombre = (alturaFila - alturaNombre) / 2; // centra el nombre si la foto es más alta
+  const alturaFila = Math.max(diametroAnillo, alturaVisualNombre);
+  // Tope visual del bloque de nombre, centrado dentro de la fila; la baseline
+  // de la primera línea es ese tope más su propio ascenso real.
+  const topeNombre = (alturaFila - alturaVisualNombre) / 2;
+  const primeraBaselineNombre = y + topeNombre + ascensoNombre;
   // Centrado con margen explícito respecto al marco dorado del fondo —no al
   // punto medio de la columna— para que el anillo nunca lo toque ni lo cruce.
   const centroXFoto = MARGEN_MARCO + HOLGURA_MARCO + radioAnillo;
@@ -333,7 +347,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
     gradiente.addColorStop(1, ORO_TEXTO);
     ctx.fillStyle = gradiente;
     lineasNombre.forEach((l, i) =>
-      ctx.fillText(l, centroXNombre, y + offsetNombre + i * 60 * escala)
+      ctx.fillText(l, centroXNombre, primeraBaselineNombre + i * 60 * escala)
     );
   }
 
