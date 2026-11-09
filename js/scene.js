@@ -7,19 +7,25 @@ const ORO_TEXTO = "#806719"; // variante de ORO con 4.5:1 de contraste, para tex
 const TINTA = "#3a2a10";
 const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este punto; preferible recortar que ilegible
 
-// Fila foto+nombre en el frente: columna izquierda para el medallón, derecha
-// para el nombre. El diámetro es fracción fija de w — igual que margenSuperior,
-// NO se multiplica por escala, para que el medallón nunca se achique si el
-// resto del contenido fuerza una escala de texto más chica.
-const ANCHO_COLUMNA_FOTO = 0.42;
-// DIAMETRO_FOTO es el diámetro EXTERIOR del anillo dorado, no el de la foto —
-// el anillo sobresale respecto al radio de la foto (SOBRESALIDA_ANILLO), y si
-// el layout solo reservara espacio para la foto, el anillo podía terminar
-// chocando contra el marco dorado del fondo de la tarjeta.
-const DIAMETRO_FOTO = 0.3;
-const SOBRESALIDA_ANILLO = 1.1;
-const MARGEN_MARCO = 34; // mismo inset que usa dibujarMarcoDorado
-const HOLGURA_MARCO = 10; // aire extra entre el anillo y el marco
+// Margen de contenido para el ancho de párrafo del frente (mensaje, frases).
+const MARGEN_CONTENIDO = 0.11; // fracción de w a cada lado
+const MARGEN_MARCO = 34; // inset del marco decorativo (dibujarMarcoDorado) — no confundir con MARGEN_CONTENIDO
+
+// Foto del frente: rectángulo de esquinas redondeadas con marco dorado fino
+// detrás (no círculo ni óvalo — se probaron los dos y no "hacían juego" con
+// el resto de la tarjeta), apilada arriba del nombre y centrada en w/2 como
+// todo lo demás (se probó lado a lado con el nombre y resultó frágil — ver
+// el comentario en diseñarFrente). ANCHO_FOTO === ALTO_FOTO a propósito — la
+// foto fuente es cuadrada (1254×1254); si no coinciden, la escala no
+// uniforme de crearTarjetaFlotante la estira. ANCHO_FOTO/ALTO_FOTO son el
+// footprint EXTERIOR del marco dorado, no el de la foto — el marco
+// sobresale un poco respecto al tamaño de la foto (SOBRESALIDA_MARCO_FOTO).
+// Fracciones fijas de w, NO se multiplican por escala, para que la foto
+// nunca se achique si el resto del contenido fuerza una escala más chica.
+const ANCHO_FOTO = 0.34;
+const ALTO_FOTO = 0.34;
+const SOBRESALIDA_MARCO_FOTO = 1.06;
+const RADIO_ESQUINA_FOTO = 0.14; // fracción del semi-ancho/semi-alto unitario de la forma (ver formaRectanguloRedondeado)
 
 export function hayWebGL() {
   try {
@@ -194,29 +200,6 @@ function dividirLineas(ctx, texto, anchoMax) {
   return lineas;
 }
 
-// Para encabezados cortos (el nombre): dividirLineas es "greedy" y puede
-// dejar una última línea corta y suelta. Busca el ancho más angosto que
-// siga produciendo el mismo número de líneas que al ancho máximo disponible
-// — reparte el texto de forma más pareja, igual criterio que "text-wrap:
-// balance" en CSS, aplicado a mano porque acá dibujamos en un canvas.
-function dividirLineasBalanceadas(ctx, texto, anchoMax) {
-  const lineasBase = dividirLineas(ctx, texto, anchoMax);
-  if (lineasBase.length <= 1) return lineasBase;
-
-  let bajo = anchoMax * 0.5;
-  let alto = anchoMax;
-  for (let i = 0; i < 8; i++) {
-    const medio = (bajo + alto) / 2;
-    const lineas = dividirLineas(ctx, texto, medio);
-    if (lineas.length <= lineasBase.length) {
-      alto = medio;
-    } else {
-      bajo = medio;
-    }
-  }
-  return dividirLineas(ctx, texto, alto);
-}
-
 function dibujarMarcoDorado(ctx, w, h) {
   ctx.strokeStyle = "rgba(201, 162, 39, 0.8)";
   ctx.lineWidth = 2;
@@ -289,7 +272,7 @@ function dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, etiqueta) {
 function diseñarFrente(ctx, w, config, escala, dibujar) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  const anchoTexto = w * 0.78;
+  const anchoTexto = w * (1 - MARGEN_CONTENIDO * 2);
   let y = 0;
 
   ctx.font = `italic ${34 * escala}px Georgia, serif`;
@@ -302,63 +285,71 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
   y += 22 * escala * 1.5 + 24 * escala;
 
-  // Fila foto+nombre: columna izquierda reservada para el medallón (no se
-  // dibuja aquí, es una malla 3D aparte — ver crearFotoMedallon), columna
-  // derecha para el nombre, centrado dentro de SU columna, no de w completo.
-  ctx.font = `bold ${58 * escala}px Georgia, serif`;
-  const anchoColumnaFoto = w * ANCHO_COLUMNA_FOTO;
-  const anchoColumnaNombre = w - anchoColumnaFoto;
-  const centroXNombre = anchoColumnaFoto + anchoColumnaNombre / 2;
-  const lineasNombre = dividirLineasBalanceadas(ctx, config.nombre, anchoColumnaNombre * 0.86);
+  // Foto y nombre apilados, los dos centrados en w/2 — como todo lo demás
+  // del frente. Se probó foto+nombre en una fila (lado a lado) y resultó
+  // frágil: cada ajuste obligaba a re-sincronizar el canvas de texto con la
+  // malla 3D de la foto, y ahí se colaban los descuadres. Apilados, cada uno
+  // es un bloque independiente en el mismo flujo vertical de siempre — ya no
+  // hay dos sistemas de coordenadas que coordinar entre sí.
 
-  // Alto VISUAL real del bloque de nombre — no "líneas × alto de línea".
-  // Con textBaseline="alphabetic", fillText dibuja arriba Y debajo de la
-  // coordenada Y que recibe; measureText da el ascenso/descenso real de la
-  // fuente actual, así el centrado contra la foto usa lo que realmente se
-  // pinta en vez de una aproximación a ciegas (con nombres de 3 líneas el
-  // desfase era visible: la foto quedaba centrada más abajo que el nombre).
-  const metricasNombre = ctx.measureText(lineasNombre[0] || config.nombre);
-  const ascensoNombre = metricasNombre.actualBoundingBoxAscent || 58 * escala * 0.75;
-  const descensoNombre = metricasNombre.actualBoundingBoxDescent || 58 * escala * 0.2;
-  const alturaVisualNombre = (lineasNombre.length - 1) * 60 * escala + ascensoNombre + descensoNombre;
+  // anchoMarcoFoto/altoMarcoFoto son el footprint visual COMPLETO de la foto
+  // (rectángulo redondeado, ya incluye el marco dorado que la bordea) —
+  // fijos, no se multiplican por escala.
+  const anchoMarcoFoto = w * ANCHO_FOTO;
+  const altoMarcoFoto = w * ALTO_FOTO;
+  const mitadAnchoFoto = anchoMarcoFoto / 2 / SOBRESALIDA_MARCO_FOTO; // tamaño real de la foto (sin el marco)
+  const mitadAltoFoto = altoMarcoFoto / 2 / SOBRESALIDA_MARCO_FOTO;
 
-  // diametroAnillo es el footprint visual COMPLETO del medallón (ya incluye
-  // el sobresaliente del anillo dorado) — fijo, no se multiplica por escala.
-  const diametroAnillo = w * DIAMETRO_FOTO;
-  const radioAnillo = diametroAnillo / 2;
-  const radioFoto = radioAnillo / SOBRESALIDA_ANILLO; // radio real de la foto (sin el anillo)
-  const alturaFila = Math.max(diametroAnillo, alturaVisualNombre);
-  // Tope visual del bloque de nombre, centrado dentro de la fila; la baseline
-  // de la primera línea es ese tope más su propio ascenso real.
-  const topeNombre = (alturaFila - alturaVisualNombre) / 2;
-  const primeraBaselineNombre = y + topeNombre + ascensoNombre;
-  // Centrado con margen explícito respecto al marco dorado del fondo —no al
-  // punto medio de la columna— para que el anillo nunca lo toque ni lo cruce.
-  const centroXFoto = MARGEN_MARCO + HOLGURA_MARCO + radioAnillo;
+  // Zona de la foto en coordenadas locales de canvas (antes del offset de
+  // centrado vertical) — crearTexturaCara la convierte a fracciones 0–1,
+  // igual que zonaEnlace, y crearTarjetaFlotante la usa para ubicar la malla
+  // 3D real. rx/ry son el semi-ancho/semi-alto de la FOTO (sin el marco) —
+  // el marco se escala a partir de esos mismos valores en crearFotoEnmarcada.
+  const zonaFoto = { cx: w / 2, cy: y + altoMarcoFoto / 2, rx: mitadAnchoFoto, ry: mitadAltoFoto };
+
+  y += altoMarcoFoto;
+
+  // El nombre se parte en "primera palabra" / "resto" (p. ej. "Ludivina" /
+  // "Pérez Coronel") en vez de ajustarse al ancho disponible por conteo de
+  // caracteres — es la convención que se pidió explícitamente, no un wrap
+  // genérico.
+  const primerEspacio = config.nombre.indexOf(" ");
+  const lineasNombre =
+    primerEspacio === -1
+      ? [config.nombre]
+      : [config.nombre.slice(0, primerEspacio), config.nombre.slice(primerEspacio + 1)];
+
+  // TAMANO_NOMBRE es el tamaño PREFERIDO (grande); si alguna línea no entra
+  // en anchoTexto a ese tamaño, se achica lo mínimo necesario para que entre
+  // — medido de verdad con measureText, no a ojo.
+  const TAMANO_NOMBRE = 54;
+  ctx.font = `bold ${TAMANO_NOMBRE * escala}px Georgia, serif`;
+  const anchoMaximoLinea = Math.max(...lineasNombre.map((l) => ctx.measureText(l).width));
+  const factorAjuste = Math.min(1, anchoTexto / anchoMaximoLinea);
+  const tamanoNombreFinal = TAMANO_NOMBRE * factorAjuste;
+  const alturaLineaNombre = tamanoNombreFinal * (48 / 46) * escala; // misma proporción alto-de-línea/tamaño que ya usaba el resto del archivo
+  ctx.font = `bold ${tamanoNombreFinal * escala}px Georgia, serif`;
+
+  // Con textBaseline="alphabetic", fillText dibuja hacia ARRIBA desde la
+  // coordenada Y que recibe (el ascenso de la fuente). A 54px ese ascenso es
+  // ~40px — más que el espacio fijo que había antes (28px), así que el
+  // nombre terminaba invadiendo visualmente el borde de la foto. Se mide el
+  // ascenso real para que el espacio visible sea el que se pide, no "lo que
+  // sobre" después de restar el ascenso.
+  const ESPACIO_FOTO_NOMBRE = 20;
+  const metricasNombre = ctx.measureText(lineasNombre[0]);
+  const ascensoNombre = metricasNombre.actualBoundingBoxAscent || tamanoNombreFinal * escala * 0.78;
+  const descensoNombre = metricasNombre.actualBoundingBoxDescent || tamanoNombreFinal * escala * 0.22;
+  y += ESPACIO_FOTO_NOMBRE * escala + ascensoNombre;
 
   if (dibujar) {
-    const gradiente = ctx.createLinearGradient(
-      centroXNombre - anchoColumnaNombre * 0.4,
-      0,
-      centroXNombre + anchoColumnaNombre * 0.4,
-      0
-    );
+    const gradiente = ctx.createLinearGradient(w * 0.15, 0, w * 0.85, 0);
     gradiente.addColorStop(0, ORO_OSCURO);
     gradiente.addColorStop(1, ORO_TEXTO);
     ctx.fillStyle = gradiente;
-    lineasNombre.forEach((l, i) =>
-      ctx.fillText(l, centroXNombre, primeraBaselineNombre + i * 60 * escala)
-    );
+    lineasNombre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * alturaLineaNombre));
   }
-
-  // Zona del medallón en coordenadas locales de canvas (antes del offset de
-  // centrado vertical) — crearTexturaCara la convierte a fracciones 0–1,
-  // igual que zonaEnlace, y crearTarjetaFlotante la usa para ubicar la malla
-  // 3D real del medallón. r es el radio de la FOTO (sin el anillo) — el
-  // anillo se escala a partir de ese mismo radio dentro de crearFotoMedallon.
-  const zonaFoto = { cx: centroXFoto, cy: y + alturaFila / 2, r: radioFoto };
-
-  y += alturaFila + 24 * escala;
+  y += (lineasNombre.length - 1) * alturaLineaNombre + descensoNombre + 24 * escala;
 
   ctx.font = `italic ${27 * escala}px Georgia, serif`;
   if (dibujar) {
@@ -520,7 +511,8 @@ function crearTexturaCara(config, diseñarFn, margenSuperiorFrac, areaUtilFrac) 
     ? {
         cx: zonaFotoLocal.cx / w,
         cy: (zonaFotoLocal.cy + offsetSuperior) / h,
-        r: zonaFotoLocal.r / w,
+        rx: zonaFotoLocal.rx / w,
+        ry: zonaFotoLocal.ry / h,
       }
     : null;
   return { textura, zonaEnlace, zonaFoto };
@@ -539,25 +531,73 @@ function crearSombraSuave() {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Medallón circular de la foto: geometría de radio 1 (unidad), para que el
-// llamador la escale al radio real en mundo con scale.set(r, r, 1) — nunca
-// con setScalar, porque eso también encogería los desplazamientos de z que
-// separan el anillo de la foto, y volverían a pisarse (z-fighting).
-function crearFotoMedallon(config) {
+// Forma de rectángulo redondeado centrada en el origen, de ancho/alto dados
+// y radio de esquina r (se recorta solo si no entra).
+function formaRectanguloRedondeado(ancho, alto, radio) {
+  const x = -ancho / 2;
+  const y = -alto / 2;
+  const r = Math.min(radio, ancho / 2, alto / 2);
+  const forma = new THREE.Shape();
+  forma.moveTo(x + r, y);
+  forma.lineTo(x + ancho - r, y);
+  forma.quadraticCurveTo(x + ancho, y, x + ancho, y + r);
+  forma.lineTo(x + ancho, y + alto - r);
+  forma.quadraticCurveTo(x + ancho, y + alto, x + ancho - r, y + alto);
+  forma.lineTo(x + r, y + alto);
+  forma.quadraticCurveTo(x, y + alto, x, y + alto - r);
+  forma.lineTo(x, y + r);
+  forma.quadraticCurveTo(x, y, x + r, y);
+  return forma;
+}
+
+// ShapeGeometry calcula los UV directamente de las coordenadas LOCALES de la
+// forma, no de su bounding box — con formaRectanguloRedondeado (centrada en
+// el origen) eso da UV negativos y la textura sale cortada a la mitad. Se
+// recalculan a mano a partir de la caja real de la geometría, igual que
+// mapearía un PlaneGeometry normal.
+function geometriaRectanguloConTextura(ancho, alto, radio) {
+  const geometria = new THREE.ShapeGeometry(formaRectanguloRedondeado(ancho, alto, radio));
+  geometria.computeBoundingBox();
+  const caja = geometria.boundingBox;
+  const uv = geometria.attributes.uv;
+  const pos = geometria.attributes.position;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(
+      i,
+      (pos.getX(i) - caja.min.x) / (caja.max.x - caja.min.x),
+      (pos.getY(i) - caja.min.y) / (caja.max.y - caja.min.y)
+    );
+  }
+  uv.needsUpdate = true;
+  return geometria;
+}
+
+// Foto del frente, con marco: geometría unitaria (semi-ancho/semi-alto = 1),
+// para que el llamador la escale al tamaño real en mundo con
+// scale.set(rx, ry, 1) — nunca con setScalar, porque eso también encogería
+// los desplazamientos de z que separan el marco de la foto, y volverían a
+// pisarse (z-fighting).
+function crearFotoEnmarcada(config) {
   const grupoFoto = new THREE.Group();
 
-  const anillo = new THREE.Mesh(
-    new THREE.RingGeometry(0.97, SOBRESALIDA_ANILLO, 48),
+  const marco = new THREE.Mesh(
+    new THREE.ShapeGeometry(
+      formaRectanguloRedondeado(
+        2 * SOBRESALIDA_MARCO_FOTO,
+        2 * SOBRESALIDA_MARCO_FOTO,
+        RADIO_ESQUINA_FOTO * SOBRESALIDA_MARCO_FOTO
+      )
+    ),
     new THREE.MeshBasicMaterial({ color: ORO_OSCURO })
   );
-  anillo.position.z = -0.001;
-  grupoFoto.add(anillo);
+  marco.position.z = -0.001;
+  grupoFoto.add(marco);
 
   // Arranca transparente (sin textura) y se revela cuando termina de cargar
   // la imagen — TextureLoader es asíncrono, pero el loop de render de
   // main.js ya corre cada frame, así que no hace falta esperar nada aquí.
   const foto = new THREE.Mesh(
-    new THREE.CircleGeometry(1, 48),
+    geometriaRectanguloConTextura(2, 2, RADIO_ESQUINA_FOTO),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
   );
   grupoFoto.add(foto);
@@ -621,18 +661,21 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   frente.position.z = grosor / 2 + 0.001;
   grupo.add(frente);
 
-  // El medallón es una malla 3D aparte, hija del mismo grupo que frente/dorso
-  // — así hereda rotación/flote/perspectiva automáticamente (igual que ellos),
+  // La foto es una malla 3D aparte, hija del mismo grupo que frente/dorso —
+  // así hereda rotación/flote/perspectiva automáticamente (igual que ellos),
   // y se ubica con la zona que diseñarFrente ya reservó para la foto.
   if (zonaFoto && config.foto) {
-    const medallon = crearFotoMedallon(config);
+    const fotoEnmarcada = crearFotoEnmarcada(config);
     const anchoMundoFrente = ancho * 0.94;
-    const radioMundo = zonaFoto.r * anchoMundoFrente;
+    // Escala no uniforme (rx≠ry): crearFotoEnmarcada arma la forma con
+    // semi-ancho/semi-alto 1, y esto la ajusta al rectángulo real.
+    const radioMundoX = zonaFoto.rx * anchoMundoFrente;
+    const radioMundoY = zonaFoto.ry * altoTextoFrente;
     const xMundo = (zonaFoto.cx - 0.5) * anchoMundoFrente;
     const yMundo = (0.5 - zonaFoto.cy) * altoTextoFrente;
-    medallon.scale.set(radioMundo, radioMundo, 1);
-    medallon.position.set(xMundo, yMundo, grosor / 2 + 0.004);
-    grupo.add(medallon);
+    fotoEnmarcada.scale.set(radioMundoX, radioMundoY, 1);
+    fotoEnmarcada.position.set(xMundo, yMundo, grosor / 2 + 0.004);
+    grupo.add(fotoEnmarcada);
   }
 
   const { textura: texturaDorso, zonaEnlace: zonaEnlaceDorso } = crearTexturaCara(
