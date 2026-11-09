@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "./vendor/three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 const ORO = "#c9a227"; // solo para flor de lis/marco decorativos — no usar en texto, falla contraste AA
-const ORO_OSCURO = "#84661e"; // ajustado desde #8a6a1f para llegar a 4.5:1 sobre el fondo de tarjeta
+const ORO_OSCURO = "#84661e"; // 4.5:1 de contraste sobre el fondo de la tarjeta — no bajarlo
 const ORO_TEXTO = "#806719"; // variante de ORO con 4.5:1 de contraste, para texto real (no decorativo)
 const TINTA = "#3a2a10";
 const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este punto; preferible recortar que ilegible
@@ -11,21 +11,24 @@ const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este pu
 const MARGEN_CONTENIDO = 0.11; // fracción de w a cada lado
 const MARGEN_MARCO = 34; // inset del marco decorativo (dibujarMarcoDorado) — no confundir con MARGEN_CONTENIDO
 
-// Foto del frente: rectángulo de esquinas redondeadas con marco dorado fino
-// detrás (no círculo ni óvalo — se probaron los dos y no "hacían juego" con
-// el resto de la tarjeta), apilada arriba del nombre y centrada en w/2 como
-// todo lo demás (se probó lado a lado con el nombre y resultó frágil — ver
-// el comentario en diseñarFrente). ANCHO_FOTO === ALTO_FOTO a propósito — la
-// foto fuente es cuadrada (1254×1254); si no coinciden, la escala no
-// uniforme de crearTarjetaFlotante la estira. ANCHO_FOTO/ALTO_FOTO son el
-// footprint EXTERIOR del marco dorado, no el de la foto — el marco
-// sobresale un poco respecto al tamaño de la foto (SOBRESALIDA_MARCO_FOTO).
+// Foto del frente: rectángulo de esquinas redondeadas con marco dorado fino.
+// ANCHO_FOTO === ALTO_FOTO a propósito — la foto fuente es cuadrada
+// (1254×1254); si no coinciden, la escala no uniforme de crearTarjetaFlotante
+// la estira. ANCHO_FOTO/ALTO_FOTO son el footprint EXTERIOR del marco
+// dorado, no el de la foto (el marco sobresale, ver SOBRESALIDA_MARCO_FOTO).
 // Fracciones fijas de w, NO se multiplican por escala, para que la foto
 // nunca se achique si el resto del contenido fuerza una escala más chica.
 const ANCHO_FOTO = 0.34;
 const ALTO_FOTO = 0.34;
 const SOBRESALIDA_MARCO_FOTO = 1.06;
 const RADIO_ESQUINA_FOTO = 0.14; // fracción del semi-ancho/semi-alto unitario de la forma (ver formaRectanguloRedondeado)
+
+// Escala de espaciado del frente, en vez de números sueltos (8, 20, 22, 26...)
+// sin un criterio claro entre ellos. Se multiplican por escala igual que el
+// resto del archivo.
+const ESPACIO_PEQUENO = 16; // entre elementos directamente relacionados (apodo↔fechas, párrafos de un mismo mensaje)
+const ESPACIO_MEDIO = 24; // entre secciones distintas del frente
+const ESPACIO_GRANDE = 28; // antes/después de los anclas visuales principales (encabezado, fechas)
 
 export function hayWebGL() {
   try {
@@ -110,10 +113,9 @@ function crearTexturaNube() {
   return new THREE.CanvasTexture(canvas);
 }
 
-// Ancho/alto visibles por la cámara a una profundidad (z) del mundo dada.
-// Así el cielo y las nubes siempre cubren toda la pantalla, sea cual sea
-// el tamaño de la tarjeta o el aspecto de la pantalla — antes se dibujaban
-// a un tamaño relativo a la tarjeta y quedaban casi tapadas detrás de ella.
+// Ancho/alto visibles por la cámara a una profundidad (z) del mundo dada —
+// así el cielo y las nubes siempre cubren toda la pantalla, sin importar el
+// tamaño de la tarjeta o el aspecto de la pantalla.
 function tamanoVisibleEnProfundidad(camera, zMundo) {
   const distancia = Math.max(0.1, camera.position.z - zMundo);
   const vFov = THREE.MathUtils.degToRad(camera.fov);
@@ -123,9 +125,9 @@ function tamanoVisibleEnProfundidad(camera, zMundo) {
 }
 
 function crearBrumaCeleste(scene, camera) {
-  // Grupo aislado: NO es hijo del contenedor que gira. Solo copiamos la
-  // posición vertical (el flote) cada frame; nunca su rotación — la misma
-  // lección del aura anterior, para que nada se descentre al girar la tarjeta.
+  // Grupo aislado: NO es hijo del contenedor que gira. Solo copia la
+  // posición vertical (el flote) cada frame, nunca la rotación — si se
+  // reparenta al grupo que gira, se descentra al girar la tarjeta.
   const grupoBruma = new THREE.Group();
 
   const Z_CIELO = -3.2;
@@ -229,13 +231,13 @@ function dibujarFloron(ctx, x, y, color, tamano) {
   ctx.restore();
 }
 
-// Dibuja el enlace "ver dorso/frente" como parte del propio texto de la
-// tarjeta (no como un botón de HTML encima) — así hereda automáticamente
-// rotación, flote y perspectiva, igual que el resto del contenido. Canvas
-// no subraya texto nativamente, así que el subrayado se traza a mano.
-// Devuelve la zona clicable en coordenadas locales de canvas (antes de
-// aplicar el desplazamiento de centrado vertical), para que crearTexturaCara
-// pueda convertirla a fracciones 0–1 del canvas (zonaEnFracciones).
+// Dibuja el enlace "ver dorso/frente" dentro de la propia textura de la
+// tarjeta, no como un botón de HTML encima — así hereda rotación, flote y
+// perspectiva igual que el resto del contenido (un overlay de HTML no lo
+// haría). Canvas no subraya texto nativamente, así que el subrayado se traza
+// a mano. Devuelve la zona clicable en coordenadas locales de canvas (antes
+// del desplazamiento de centrado vertical); crearTexturaCara la convierte a
+// fracciones 0–1 (zonaEnFracciones).
 function dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, etiqueta) {
   y += 20 * escala;
   ctx.font = `italic ${18 * escala}px Georgia, serif`;
@@ -266,9 +268,7 @@ function dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, etiqueta) {
 
 // Dibuja (o solo mide, si dibujar=false) el contenido del frente a una
 // escala dada. Se llama primero a escala 1 para medir el alto real que
-// ocupa el texto de esta tarjeta en particular, y si no cabe en el área
-// disponible se vuelve a llamar con una escala menor — así el texto
-// nunca se desborda, sea corto o largo el contenido de config.js.
+// ocupa, y si no cabe se vuelve a llamar con una escala menor.
 function diseñarFrente(ctx, w, config, escala, dibujar) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
@@ -280,21 +280,13 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText("En memoria de", w / 2, y);
   }
-  y += 34 * escala * 1.3 + 28 * escala;
+  y += 34 * escala * 1.3 + ESPACIO_GRANDE * escala;
 
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
-  y += 22 * escala * 1.5 + 24 * escala;
+  y += 22 * escala * 1.5 + ESPACIO_MEDIO * escala;
 
-  // Foto y nombre apilados, los dos centrados en w/2 — como todo lo demás
-  // del frente. Se probó foto+nombre en una fila (lado a lado) y resultó
-  // frágil: cada ajuste obligaba a re-sincronizar el canvas de texto con la
-  // malla 3D de la foto, y ahí se colaban los descuadres. Apilados, cada uno
-  // es un bloque independiente en el mismo flujo vertical de siempre — ya no
-  // hay dos sistemas de coordenadas que coordinar entre sí.
-
-  // anchoMarcoFoto/altoMarcoFoto son el footprint visual COMPLETO de la foto
-  // (rectángulo redondeado, ya incluye el marco dorado que la bordea) —
-  // fijos, no se multiplican por escala.
+  // Foto y nombre apilados, centrados en w/2, cada uno como un bloque
+  // independiente del flujo vertical — igual que todo lo demás del frente.
   const anchoMarcoFoto = w * ANCHO_FOTO;
   const altoMarcoFoto = w * ALTO_FOTO;
   const mitadAnchoFoto = anchoMarcoFoto / 2 / SOBRESALIDA_MARCO_FOTO; // tamaño real de la foto (sin el marco)
@@ -309,10 +301,8 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
 
   y += altoMarcoFoto;
 
-  // El nombre se parte en "primera palabra" / "resto" (p. ej. "Ludivina" /
-  // "Pérez Coronel") en vez de ajustarse al ancho disponible por conteo de
-  // caracteres — es la convención que se pidió explícitamente, no un wrap
-  // genérico.
+  // Primera palabra en su propia línea, el resto en la siguiente (p. ej.
+  // "Ludivina" / "Pérez Coronel") — no es un wrap por ancho como dividirLineas.
   const primerEspacio = config.nombre.indexOf(" ");
   const lineasNombre =
     primerEspacio === -1
@@ -330,12 +320,11 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   const alturaLineaNombre = tamanoNombreFinal * (48 / 46) * escala; // misma proporción alto-de-línea/tamaño que ya usaba el resto del archivo
   ctx.font = `bold ${tamanoNombreFinal * escala}px Georgia, serif`;
 
-  // Con textBaseline="alphabetic", fillText dibuja hacia ARRIBA desde la
-  // coordenada Y que recibe (el ascenso de la fuente). A 54px ese ascenso es
-  // ~40px — más que el espacio fijo que había antes (28px), así que el
-  // nombre terminaba invadiendo visualmente el borde de la foto. Se mide el
-  // ascenso real para que el espacio visible sea el que se pide, no "lo que
-  // sobre" después de restar el ascenso.
+  // Con textBaseline="alphabetic", fillText dibuja hacia ARRIBA desde la Y
+  // que recibe (el ascenso de la fuente) — con texto grande (54px, ~40px de
+  // ascenso) un espacio fijo subestima cuánto sube el texto y lo mete dentro
+  // del bloque anterior. Se mide el ascenso real para que el espacio visible
+  // sea el que se pide, no "lo que sobre" después de restarlo.
   const ESPACIO_FOTO_NOMBRE = 20;
   const metricasNombre = ctx.measureText(lineasNombre[0]);
   const ascensoNombre = metricasNombre.actualBoundingBoxAscent || tamanoNombreFinal * escala * 0.78;
@@ -349,24 +338,24 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
     ctx.fillStyle = gradiente;
     lineasNombre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * alturaLineaNombre));
   }
-  y += (lineasNombre.length - 1) * alturaLineaNombre + descensoNombre + 24 * escala;
+  y += (lineasNombre.length - 1) * alturaLineaNombre + descensoNombre + ESPACIO_MEDIO * escala;
 
   ctx.font = `italic ${27 * escala}px Georgia, serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText(`"${config.apodoCarinoso}"`, w / 2, y);
   }
-  y += 27 * escala * 1.4 + 20 * escala;
+  y += 27 * escala * 1.4 + ESPACIO_PEQUENO * escala; // apodo↔fechas: elementos directamente relacionados
 
   ctx.font = `${25 * escala}px Georgia, serif`;
   if (dibujar) {
     ctx.fillStyle = TINTA;
     ctx.fillText(`${config.nacimiento}  —  ${config.fallecimiento}`, w / 2, y);
   }
-  y += 25 * escala * 1.5 + 28 * escala;
+  y += 25 * escala * 1.5 + ESPACIO_GRANDE * escala;
 
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
-  y += 22 * escala * 1.5 + 26 * escala;
+  y += 22 * escala * 1.5 + ESPACIO_MEDIO * escala;
 
   if (Array.isArray(config.mensajeFrontal)) {
     ctx.font = `${21 * escala}px Georgia, serif`;
@@ -376,19 +365,19 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
         ctx.fillStyle = TINTA;
         lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 28 * escala));
       }
-      y += lineasMsg.length * 28 * escala + 16 * escala;
+      y += lineasMsg.length * 28 * escala + ESPACIO_PEQUENO * escala;
     }
   }
 
   if (config.fraseDestacada) {
-    y += 8 * escala;
+    y += (ESPACIO_MEDIO - ESPACIO_PEQUENO) * escala; // el párrafo anterior ya dejó ESPACIO_PEQUENO; esto lo completa a ESPACIO_MEDIO
     ctx.font = `bold ${23 * escala}px Georgia, serif`;
     const lineasDestacada = dividirLineas(ctx, config.fraseDestacada, anchoTexto * 0.94);
     if (dibujar) {
       ctx.fillStyle = ORO_OSCURO;
       lineasDestacada.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 30 * escala));
     }
-    y += lineasDestacada.length * 30 * escala + 22 * escala;
+    y += lineasDestacada.length * 30 * escala + ESPACIO_MEDIO * escala;
   }
 
   if (config.fraseCierre) {
@@ -398,7 +387,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
       ctx.fillStyle = TINTA;
       lineasCierre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 29 * escala));
     }
-    y += lineasCierre.length * 29 * escala + 20 * escala;
+    y += lineasCierre.length * 29 * escala + ESPACIO_PEQUENO * escala;
   }
 
   if (config.lugar) {
@@ -629,7 +618,7 @@ function ajustarCamaraResponsiva(camera, ancho, alto, margen = 1.45) {
 
 export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   const ancho = 2.0;
-  const alto = 3.2; // más alta que el boceto original: el contenido real del frente no cabía
+  const alto = 3.2; // si cambia, actualizar también el canvas.height de crearTexturaCara (misma proporción)
   const grosor = 0.08;
   const radioEsquina = 0.14;
 
@@ -726,12 +715,9 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
     return mostrandoDorso;
   }
 
-  // El enlace "Ver dorso ›" / "‹ Ver frente" vive dentro de la propia
-  // textura (dibujarEnlaceVoltear), no como botón de HTML — así hereda
-  // rotación, flote y perspectiva exactamente igual que el resto del
-  // texto, en vez de tener que perseguir al objeto cada frame. Un tap
-  // (sin arrastre) lanza un rayo contra frente/dorso; si cae dentro de
-  // zonaEnlaceFrente/zonaEnlaceDorso, activa el mismo alternarVista().
+  // Un tap (sin arrastre) lanza un rayo contra frente/dorso; si cae dentro
+  // de zonaEnlaceFrente/zonaEnlaceDorso (ver dibujarEnlaceVoltear), activa
+  // alternarVista().
   const raycaster = new THREE.Raycaster();
   const puntero = new THREE.Vector2();
   function manejarTap(e) {
@@ -779,16 +765,12 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   window.addEventListener("pointermove", alMover);
   window.addEventListener("pointerup", alSoltar);
 
-  // Fracción del camino que queda por recorrer tras 1 segundo, sin importar
-  // el frame rate del dispositivo — mismo patrón que el resorte del arrastre
-  // (1 - K^delta), para que el giro y el flote se sientan igual de fluidos
-  // en una pantalla de 60Hz que en una de 120Hz. Valores más chicos = llega
-  // más rápido al objetivo; se eligieron más lentos que el 0.08/0.05 fijos
-  // que había antes, para un acomodo más sereno.
+  // Fracción del camino que queda por recorrer tras 1 segundo — usado como
+  // 1 - K^delta (no un lerp de factor fijo), para que la velocidad no
+  // dependa del frame rate del dispositivo. Valores más chicos = llega más
+  // rápido al objetivo.
   const SUAVIZADO_GIRO = 0.02;
   const SUAVIZADO_FLOTE = 0.07;
-  // Antes en 0.001 (99.9% recorrido en 1s): volvía de golpe, como un "snap".
-  // Con 0.03 el acomodo se siente más como dejarse ir que como frenar en seco.
   const SUAVIZADO_RESORTE_ARRASTRE = 0.03;
 
   function actualizar(delta, tiempo) {

@@ -16,11 +16,9 @@ html, body {
   display: block;
 }
 
-/* El enlace "ver dorso/frente" visible ahora vive DENTRO de la textura de
-   la tarjeta (scene.js, dibujarEnlaceVoltear) — se mueve, rota y tiene
-   perspectiva igual que el resto del texto. Este botón es solo el
-   respaldo para teclado/lector de pantalla: igual que un "skip link",
-   permanece oculto hasta recibir foco por teclado. */
+/* El enlace "ver dorso/frente" visible vive dentro de la textura de la
+   tarjeta (scene.js, dibujarEnlaceVoltear). Este botón es solo el respaldo
+   para teclado/lector de pantalla — permanece oculto hasta recibir foco. */
 #boton-girar {
   position: fixed;
   top: 0;
@@ -52,9 +50,8 @@ html, body {
   outline-offset: 2px;
 }
 
-/* Oculta visualmente el contenido real de la tarjeta (duplicado del canvas)
-   sin ocultarlo de lectores de pantalla — el texto solo vive como píxeles
-   en la textura 3D, esto le da un equivalente accesible. */
+/* Oculta visualmente sin ocultar de lectores de pantalla — el texto de la
+   tarjeta solo existe como píxeles en la textura 3D. */
 .sr-only {
   position: absolute;
   width: 1px;
