@@ -1,0 +1,7 @@
+.DS_Store
+Thumbs.db
+*.log
+.vercel/
+
+# Skill instalada localmente para esta sesión de Claude Code — herramienta, no contenido del proyecto.
+.claude/
