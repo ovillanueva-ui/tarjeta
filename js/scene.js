@@ -7,6 +7,13 @@ const ORO_TEXTO = "#806719"; // variante de ORO con 4.5:1 de contraste, para tex
 const TINTA = "#3a2a10";
 const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este punto; preferible recortar que ilegible
 
+// Fila foto+nombre en el frente: columna izquierda para el medallón, derecha
+// para el nombre. El diámetro de la foto es fracción fija de w — igual que
+// margenSuperior, NO se multiplica por escala, para que el medallón nunca se
+// achique si el resto del contenido fuerza una escala de texto más chica.
+const ANCHO_COLUMNA_FOTO = 0.42;
+const DIAMETRO_FOTO = 0.34;
+
 export function hayWebGL() {
   try {
     const canvas = document.createElement("canvas");
@@ -259,16 +266,41 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
   y += 22 * escala * 1.5 + 24 * escala;
 
+  // Fila foto+nombre: columna izquierda reservada para el medallón (no se
+  // dibuja aquí, es una malla 3D aparte — ver crearFotoMedallon), columna
+  // derecha para el nombre, centrado dentro de SU columna, no de w completo.
   ctx.font = `bold ${58 * escala}px Georgia, serif`;
-  const lineasNombre = dividirLineas(ctx, config.nombre, w * 0.86);
+  const anchoColumnaFoto = w * ANCHO_COLUMNA_FOTO;
+  const anchoColumnaNombre = w - anchoColumnaFoto;
+  const centroXNombre = anchoColumnaFoto + anchoColumnaNombre / 2;
+  const lineasNombre = dividirLineas(ctx, config.nombre, anchoColumnaNombre * 0.86);
+  const alturaNombre = lineasNombre.length * 60 * escala;
+  const diametroFoto = w * DIAMETRO_FOTO; // fijo, no se multiplica por escala
+  const alturaFila = Math.max(diametroFoto, alturaNombre);
+  const offsetNombre = (alturaFila - alturaNombre) / 2; // centra el nombre si la foto es más alta
+
   if (dibujar) {
-    const gradiente = ctx.createLinearGradient(w * 0.2, 0, w * 0.8, 0);
+    const gradiente = ctx.createLinearGradient(
+      centroXNombre - anchoColumnaNombre * 0.4,
+      0,
+      centroXNombre + anchoColumnaNombre * 0.4,
+      0
+    );
     gradiente.addColorStop(0, ORO_OSCURO);
     gradiente.addColorStop(1, ORO_TEXTO);
     ctx.fillStyle = gradiente;
-    lineasNombre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 60 * escala));
+    lineasNombre.forEach((l, i) =>
+      ctx.fillText(l, centroXNombre, y + offsetNombre + i * 60 * escala)
+    );
   }
-  y += lineasNombre.length * 60 * escala + 24 * escala;
+
+  // Zona del medallón en coordenadas locales de canvas (antes del offset de
+  // centrado vertical) — crearTexturaCara la convierte a fracciones 0–1,
+  // igual que zonaEnlace, y crearTarjetaFlotante la usa para ubicar la
+  // malla 3D real del medallón.
+  const zonaFoto = { cx: anchoColumnaFoto / 2, cy: y + alturaFila / 2, r: diametroFoto / 2 };
+
+  y += alturaFila + 24 * escala;
 
   ctx.font = `italic ${27 * escala}px Georgia, serif`;
   if (dibujar) {
@@ -329,7 +361,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
     y += 19 * escala * 1.4;
   }
 
-  return dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, "Ver dorso ›");
+  return { ...dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, "Ver dorso ›"), zonaFoto };
 }
 
 function diseñarDorso(ctx, w, config, escala, dibujar) {
@@ -409,7 +441,13 @@ function crearTexturaCara(config, diseñarFn, margenSuperiorFrac, areaUtilFrac) 
 
   const { y: alturaBase } = diseñarFn(ctx, w, config, 1, false);
   const escala = Math.max(ESCALA_MINIMA_TEXTO, Math.min(1, areaUtil / alturaBase));
-  const { y: alturaFinal, zonaEnlace: zonaLocal } = diseñarFn(ctx, w, config, escala, false);
+  const { y: alturaFinal, zonaEnlace: zonaLocal, zonaFoto: zonaFotoLocal } = diseñarFn(
+    ctx,
+    w,
+    config,
+    escala,
+    false
+  );
 
   const offsetSuperior = margenSuperior + Math.max(0, (areaUtil - alturaFinal) / 2);
   ctx.save();
@@ -420,7 +458,14 @@ function crearTexturaCara(config, diseñarFn, margenSuperiorFrac, areaUtilFrac) 
   const textura = new THREE.CanvasTexture(canvas);
   textura.colorSpace = THREE.SRGBColorSpace;
   const zonaEnlace = zonaEnFracciones(zonaLocal, offsetSuperior, w, h);
-  return { textura, zonaEnlace };
+  const zonaFoto = zonaFotoLocal
+    ? {
+        cx: zonaFotoLocal.cx / w,
+        cy: (zonaFotoLocal.cy + offsetSuperior) / h,
+        r: zonaFotoLocal.r / w,
+      }
+    : null;
+  return { textura, zonaEnlace, zonaFoto };
 }
 
 function crearSombraSuave() {
@@ -434,6 +479,41 @@ function crearSombraSuave() {
   ctx.fillStyle = degradado;
   ctx.fillRect(0, 0, 256, 256);
   return new THREE.CanvasTexture(canvas);
+}
+
+// Medallón circular de la foto: geometría de radio 1 (unidad), para que el
+// llamador la escale al radio real en mundo con scale.set(r, r, 1) — nunca
+// con setScalar, porque eso también encogería los desplazamientos de z que
+// separan el anillo de la foto, y volverían a pisarse (z-fighting).
+function crearFotoMedallon(config) {
+  const grupoFoto = new THREE.Group();
+
+  const anillo = new THREE.Mesh(
+    new THREE.RingGeometry(0.95, 1.15, 48),
+    new THREE.MeshBasicMaterial({ color: ORO_OSCURO })
+  );
+  anillo.position.z = -0.001;
+  grupoFoto.add(anillo);
+
+  // Arranca transparente (sin textura) y se revela cuando termina de cargar
+  // la imagen — TextureLoader es asíncrono, pero el loop de render de
+  // main.js ya corre cada frame, así que no hace falta esperar nada aquí.
+  const foto = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 48),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 })
+  );
+  grupoFoto.add(foto);
+
+  if (config.foto) {
+    new THREE.TextureLoader().load(config.foto, (textura) => {
+      textura.colorSpace = THREE.SRGBColorSpace;
+      foto.material.map = textura;
+      foto.material.opacity = 1;
+      foto.material.needsUpdate = true;
+    });
+  }
+
+  return grupoFoto;
 }
 
 function ajustarCamaraResponsiva(camera, ancho, alto, margen = 1.45) {
@@ -470,7 +550,7 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   grupo.add(tarjeta);
 
   const altoTextoFrente = alto * 0.94;
-  const { textura: texturaFrente, zonaEnlace: zonaEnlaceFrente } = crearTexturaCara(
+  const { textura: texturaFrente, zonaEnlace: zonaEnlaceFrente, zonaFoto } = crearTexturaCara(
     config,
     diseñarFrente,
     0.08,
@@ -482,6 +562,20 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   );
   frente.position.z = grosor / 2 + 0.001;
   grupo.add(frente);
+
+  // El medallón es una malla 3D aparte, hija del mismo grupo que frente/dorso
+  // — así hereda rotación/flote/perspectiva automáticamente (igual que ellos),
+  // y se ubica con la zona que diseñarFrente ya reservó para la foto.
+  if (zonaFoto && config.foto) {
+    const medallon = crearFotoMedallon(config);
+    const anchoMundoFrente = ancho * 0.94;
+    const radioMundo = zonaFoto.r * anchoMundoFrente;
+    const xMundo = (zonaFoto.cx - 0.5) * anchoMundoFrente;
+    const yMundo = (0.5 - zonaFoto.cy) * altoTextoFrente;
+    medallon.scale.set(radioMundo, radioMundo, 1);
+    medallon.position.set(xMundo, yMundo, grosor / 2 + 0.004);
+    grupo.add(medallon);
+  }
 
   const { textura: texturaDorso, zonaEnlace: zonaEnlaceDorso } = crearTexturaCara(
     config,

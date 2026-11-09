@@ -4,8 +4,10 @@
 export const CONFIG = {
   nombre: "Ludivina Pérez Coronel",
   apodoCarinoso: "Ludy",
-  nacimiento: "02 de noviembre de 1956",
-  fallecimiento: "04 de noviembre de 2026",
+  nacimiento: "02-11-1956",
+  fallecimiento: "04-11-2026",
+  foto: "foto.jpeg",
+  fotoAlt: "Fotografía de Ludivina Pérez Coronel",
   mensajeFrontal: [
     "Con amor, gratitud y cariño, honramos la vida de una mujer cuya historia forma parte de la nuestra.",
     "Que su recuerdo permanezca vivo en cada abrazo compartido, en las enseñanzas que nos dejó y en el amor que seguirá uniéndonos como familia.",

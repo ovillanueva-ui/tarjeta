@@ -15,6 +15,12 @@ function llenarContenidoAccesible(config, contenedor) {
     el.textContent = texto;
     contenedor.appendChild(el);
   }
+  if (config.foto) {
+    const img = document.createElement("img");
+    img.src = config.foto;
+    img.alt = config.fotoAlt || "";
+    contenedor.appendChild(img);
+  }
   agregar("h1", `En memoria de ${config.nombre}`);
   agregar("p", `"${config.apodoCarinoso}"`);
   agregar("p", `${config.nacimiento} — ${config.fallecimiento}`);
