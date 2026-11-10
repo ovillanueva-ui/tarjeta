@@ -7,6 +7,13 @@ const ORO_TEXTO = "#806719"; // variante de ORO con 4.5:1 de contraste, para tex
 const TINTA = "#3a2a10";
 const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este punto; preferible recortar que ilegible
 
+// Límites del zoom de pellizco, como factor sobre la distancia de cámara ya
+// ajustada por ajustarCamaraResponsiva — <1 acerca (tarjeta más grande en
+// pantalla), >1 aleja. No se deja llegar a 0 ni valores muy chicos: la
+// cámara atravesaría el plano cercano (near=0.1) y la tarjeta desaparecería.
+const ZOOM_MINIMO = 0.55;
+const ZOOM_MAXIMO = 1.5;
+
 // Margen de contenido para el ancho de párrafo del frente (mensaje, frases).
 const MARGEN_CONTENIDO = 0.11; // fracción de w a cada lado
 const MARGEN_MARCO = 34; // inset del marco decorativo (dibujarMarcoDorado) — no confundir con MARGEN_CONTENIDO
@@ -26,9 +33,9 @@ const RADIO_ESQUINA_FOTO = 0.14; // fracción del semi-ancho/semi-alto unitario 
 // Escala de espaciado del frente, en vez de números sueltos (8, 20, 22, 26...)
 // sin un criterio claro entre ellos. Se multiplican por escala igual que el
 // resto del archivo.
-const ESPACIO_PEQUENO = 16; // entre elementos directamente relacionados (apodo↔fechas, párrafos de un mismo mensaje)
-const ESPACIO_MEDIO = 24; // entre secciones distintas del frente
-const ESPACIO_GRANDE = 28; // antes/después de los anclas visuales principales (encabezado, fechas)
+const ESPACIO_PEQUENO = 21; // entre elementos directamente relacionados (apodo↔fechas, párrafos de un mismo mensaje)
+const ESPACIO_MEDIO = 33; // entre secciones distintas del frente
+const ESPACIO_GRANDE = 38; // antes/después de los anclas visuales principales (encabezado, fechas)
 
 export function hayWebGL() {
   try {
@@ -78,111 +85,15 @@ export function inicializarEscena(canvas) {
   return { scene, camera, renderer, clock: new THREE.Clock() };
 }
 
-function crearTexturaHaze() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  const degradado = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-  degradado.addColorStop(0, "rgba(255,255,255,0.8)");
-  degradado.addColorStop(0.5, "rgba(255,255,255,0.3)");
-  degradado.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = degradado;
-  ctx.fillRect(0, 0, 256, 256);
-  return new THREE.CanvasTexture(canvas);
-}
-
-function crearTexturaNube() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 320;
-  const ctx = canvas.getContext("2d");
-  for (let i = 0; i < 7; i++) {
-    const cx = 90 + Math.random() * 330;
-    const cy = 150 + (Math.random() - 0.5) * 70;
-    const r = 55 + Math.random() * 65;
-    const degradado = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    degradado.addColorStop(0, "rgba(255,255,255,0.85)");
-    degradado.addColorStop(0.6, "rgba(255,255,255,0.45)");
-    degradado.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = degradado;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  return new THREE.CanvasTexture(canvas);
-}
-
 // Ancho/alto visibles por la cámara a una profundidad (z) del mundo dada —
-// así el cielo y las nubes siempre cubren toda la pantalla, sin importar el
-// tamaño de la tarjeta o el aspecto de la pantalla.
+// la usa el paneo de pellizco para convertir píxeles de pantalla a unidades
+// de mundo al nivel de la tarjeta (z=0).
 function tamanoVisibleEnProfundidad(camera, zMundo) {
   const distancia = Math.max(0.1, camera.position.z - zMundo);
   const vFov = THREE.MathUtils.degToRad(camera.fov);
   const altoVisible = 2 * distancia * Math.tan(vFov / 2);
   const anchoVisible = altoVisible * camera.aspect;
   return { anchoVisible, altoVisible };
-}
-
-function crearBrumaCeleste(scene, camera) {
-  // Grupo aislado: NO es hijo del contenedor que gira. Solo copia la
-  // posición vertical (el flote) cada frame, nunca la rotación — si se
-  // reparenta al grupo que gira, se descentra al girar la tarjeta.
-  const grupoBruma = new THREE.Group();
-
-  const Z_CIELO = -3.2;
-
-  const cielo = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: crearTexturaHaze(),
-      color: 0xa9d2f0,
-      transparent: true,
-      opacity: 0.5,
-      depthWrite: false,
-    })
-  );
-  cielo.position.z = Z_CIELO;
-  grupoBruma.add(cielo);
-
-  const capas = [
-    { z: -2.4, y: 0.55, velocidad: 0.03, opacidad: 0.55 },
-    { z: -1.7, y: -0.5, velocidad: 0.045, opacidad: 0.6 },
-  ].map((config) => {
-    const nube = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: crearTexturaNube(),
-        color: 0xf2f8fd,
-        transparent: true,
-        opacity: config.opacidad,
-        depthWrite: false,
-      })
-    );
-    nube.position.z = config.z;
-    grupoBruma.add(nube);
-    return { nube, ...config };
-  });
-
-  function actualizar(tiempo) {
-    const cieloTamano = tamanoVisibleEnProfundidad(camera, Z_CIELO);
-    cielo.scale.set(cieloTamano.anchoVisible * 1.25, cieloTamano.altoVisible * 1.25, 1);
-    cielo.material.opacity = 0.45 + Math.sin(tiempo * 0.25) * 0.08;
-
-    for (const capa of capas) {
-      const tamano = tamanoVisibleEnProfundidad(camera, capa.z);
-      capa.nube.scale.set(tamano.anchoVisible * 0.95, tamano.altoVisible * 0.42, 1);
-      capa.nube.position.y = tamano.altoVisible * capa.y;
-      // El recorrido va de -anchoVisible a +anchoVisible (no solo ±0.85):
-      // la nube mide 0.95×anchoVisible de ancho (mitad = 0.475), así que a
-      // ±1.0×anchoVisible su borde más cercano (0.525) ya quedó fuera de la
-      // mitad visible (0.5) en ambos extremos — el salto de avance=1 a 0
-      // ocurre con la nube completamente fuera de cuadro, sin "teletransporte" visible.
-      const avance = (tiempo * capa.velocidad) % 1;
-      capa.nube.position.x = avance * tamano.anchoVisible * 2 - tamano.anchoVisible;
-    }
-  }
-
-  scene.add(grupoBruma);
-  return { grupoBruma, actualizar };
 }
 
 function dividirLineas(ctx, texto, anchoMax) {
@@ -239,8 +150,8 @@ function dibujarFloron(ctx, x, y, color, tamano) {
 // del desplazamiento de centrado vertical); crearTexturaCara la convierte a
 // fracciones 0–1 (zonaEnFracciones).
 function dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, etiqueta) {
-  y += 20 * escala;
-  ctx.font = `italic ${18 * escala}px Georgia, serif`;
+  y += 26 * escala;
+  ctx.font = `italic ${24 * escala}px Georgia, serif`;
   const anchoEtiqueta = ctx.measureText(etiqueta).width;
 
   if (dibujar) {
@@ -249,20 +160,20 @@ function dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, etiqueta) {
     ctx.strokeStyle = ORO_TEXTO;
     ctx.lineWidth = Math.max(1, escala);
     ctx.beginPath();
-    ctx.moveTo(w / 2 - anchoEtiqueta / 2, y + 5 * escala);
-    ctx.lineTo(w / 2 + anchoEtiqueta / 2, y + 5 * escala);
+    ctx.moveTo(w / 2 - anchoEtiqueta / 2, y + 7 * escala);
+    ctx.lineTo(w / 2 + anchoEtiqueta / 2, y + 7 * escala);
     ctx.stroke();
   }
 
-  const relleno = 20 * escala; // zona táctil más generosa que el texto visible
+  const relleno = 26 * escala; // zona táctil más generosa que el texto visible
   const zonaEnlace = {
     x0: w / 2 - anchoEtiqueta / 2 - relleno,
     x1: w / 2 + anchoEtiqueta / 2 + relleno,
-    y0: y - 18 * escala - relleno,
-    y1: y + 8 * escala + relleno,
+    y0: y - 24 * escala - relleno,
+    y1: y + 10 * escala + relleno,
   };
 
-  y += 18 * escala * 1.5;
+  y += 24 * escala * 1.5;
   return { y, zonaEnlace };
 }
 
@@ -275,15 +186,12 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   const anchoTexto = w * (1 - MARGEN_CONTENIDO * 2);
   let y = 0;
 
-  ctx.font = `italic ${34 * escala}px Georgia, serif`;
+  ctx.font = `italic ${45 * escala}px Georgia, serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText("En memoria de", w / 2, y);
   }
-  y += 34 * escala * 1.3 + ESPACIO_GRANDE * escala;
-
-  if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
-  y += 22 * escala * 1.5 + ESPACIO_MEDIO * escala;
+  y += 45 * escala * 1.3 + ESPACIO_GRANDE * escala;
 
   // Foto y nombre apilados, centrados en w/2, cada uno como un bloque
   // independiente del flujo vertical — igual que todo lo demás del frente.
@@ -312,7 +220,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   // TAMANO_NOMBRE es el tamaño PREFERIDO (grande); si alguna línea no entra
   // en anchoTexto a ese tamaño, se achica lo mínimo necesario para que entre
   // — medido de verdad con measureText, no a ojo.
-  const TAMANO_NOMBRE = 54;
+  const TAMANO_NOMBRE = 72;
   ctx.font = `bold ${TAMANO_NOMBRE * escala}px Georgia, serif`;
   const anchoMaximoLinea = Math.max(...lineasNombre.map((l) => ctx.measureText(l).width));
   const factorAjuste = Math.min(1, anchoTexto / anchoMaximoLinea);
@@ -325,7 +233,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   // ascenso) un espacio fijo subestima cuánto sube el texto y lo mete dentro
   // del bloque anterior. Se mide el ascenso real para que el espacio visible
   // sea el que se pide, no "lo que sobre" después de restarlo.
-  const ESPACIO_FOTO_NOMBRE = 20;
+  const ESPACIO_FOTO_NOMBRE = 27;
   const metricasNombre = ctx.measureText(lineasNombre[0]);
   const ascensoNombre = metricasNombre.actualBoundingBoxAscent || tamanoNombreFinal * escala * 0.78;
   const descensoNombre = metricasNombre.actualBoundingBoxDescent || tamanoNombreFinal * escala * 0.22;
@@ -340,63 +248,60 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   }
   y += (lineasNombre.length - 1) * alturaLineaNombre + descensoNombre + ESPACIO_MEDIO * escala;
 
-  ctx.font = `italic ${27 * escala}px Georgia, serif`;
+  ctx.font = `italic ${36 * escala}px Georgia, serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText(`"${config.apodoCarinoso}"`, w / 2, y);
   }
-  y += 27 * escala * 1.4 + ESPACIO_PEQUENO * escala; // apodo↔fechas: elementos directamente relacionados
+  y += 36 * escala * 1.4 + ESPACIO_PEQUENO * escala; // apodo↔fechas: elementos directamente relacionados
 
-  ctx.font = `${25 * escala}px Georgia, serif`;
+  ctx.font = `${34 * escala}px Georgia, serif`;
   if (dibujar) {
     ctx.fillStyle = TINTA;
     ctx.fillText(`${config.nacimiento}  —  ${config.fallecimiento}`, w / 2, y);
   }
-  y += 25 * escala * 1.5 + ESPACIO_GRANDE * escala;
-
-  if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
-  y += 22 * escala * 1.5 + ESPACIO_MEDIO * escala;
+  y += 34 * escala * 1.5 + ESPACIO_GRANDE * escala;
 
   if (Array.isArray(config.mensajeFrontal)) {
-    ctx.font = `${21 * escala}px Georgia, serif`;
+    ctx.font = `${28 * escala}px Georgia, serif`;
     for (const linea of config.mensajeFrontal) {
       const lineasMsg = dividirLineas(ctx, linea, anchoTexto);
       if (dibujar) {
         ctx.fillStyle = TINTA;
-        lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 28 * escala));
+        lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 38 * escala));
       }
-      y += lineasMsg.length * 28 * escala + ESPACIO_PEQUENO * escala;
+      y += lineasMsg.length * 38 * escala + ESPACIO_PEQUENO * escala;
     }
   }
 
   if (config.fraseDestacada) {
     y += (ESPACIO_MEDIO - ESPACIO_PEQUENO) * escala; // el párrafo anterior ya dejó ESPACIO_PEQUENO; esto lo completa a ESPACIO_MEDIO
-    ctx.font = `bold ${23 * escala}px Georgia, serif`;
+    ctx.font = `bold ${31 * escala}px Georgia, serif`;
     const lineasDestacada = dividirLineas(ctx, config.fraseDestacada, anchoTexto * 0.94);
     if (dibujar) {
       ctx.fillStyle = ORO_OSCURO;
-      lineasDestacada.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 30 * escala));
+      lineasDestacada.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 41 * escala));
     }
-    y += lineasDestacada.length * 30 * escala + ESPACIO_MEDIO * escala;
+    y += lineasDestacada.length * 41 * escala + ESPACIO_MEDIO * escala;
   }
 
   if (config.fraseCierre) {
-    ctx.font = `italic ${22 * escala}px Georgia, serif`;
+    ctx.font = `italic ${29 * escala}px Georgia, serif`;
     const lineasCierre = dividirLineas(ctx, config.fraseCierre, anchoTexto);
     if (dibujar) {
       ctx.fillStyle = TINTA;
-      lineasCierre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 29 * escala));
+      lineasCierre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 40 * escala));
     }
-    y += lineasCierre.length * 29 * escala + ESPACIO_PEQUENO * escala;
+    y += lineasCierre.length * 40 * escala + ESPACIO_PEQUENO * escala;
   }
 
   if (config.lugar) {
-    ctx.font = `${19 * escala}px Georgia, serif`;
+    ctx.font = `${26 * escala}px Georgia, serif`;
     if (dibujar) {
       ctx.fillStyle = ORO_OSCURO;
       ctx.fillText(config.lugar, w / 2, y);
     }
-    y += 19 * escala * 1.4;
+    y += 26 * escala * 1.4;
   }
 
   return { ...dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, "Ver dorso ›"), zonaFoto };
@@ -408,37 +313,37 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
   const anchoTexto = w * 0.8;
   let y = 0;
 
-  if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
-  y += 22 * escala * 1.5 + 26 * escala;
+  if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 29 * escala);
+  y += 29 * escala * 1.5 + 35 * escala;
 
-  ctx.font = `bold ${25 * escala}px Georgia, serif`;
+  ctx.font = `bold ${34 * escala}px Georgia, serif`;
   const lineasDed = dividirLineas(ctx, config.dedicatoria, anchoTexto);
   if (dibujar) {
     ctx.fillStyle = TINTA;
-    lineasDed.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 32 * escala));
+    lineasDed.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 43 * escala));
   }
-  y += lineasDed.length * 32 * escala + 30 * escala;
+  y += lineasDed.length * 43 * escala + 41 * escala;
 
-  ctx.font = `${21 * escala}px Georgia, serif`;
+  ctx.font = `${28 * escala}px Georgia, serif`;
   for (const linea of config.mensaje) {
     const lineasMsg = dividirLineas(ctx, linea, anchoTexto);
     if (dibujar) {
       ctx.fillStyle = "#2a1d0c";
-      lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 28 * escala));
+      lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 38 * escala));
     }
-    y += lineasMsg.length * 28 * escala + 16 * escala;
+    y += lineasMsg.length * 38 * escala + 21 * escala;
   }
 
-  y += 10 * escala;
-  if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 22 * escala);
-  y += 22 * escala * 1.5 + 22 * escala;
+  y += 14 * escala;
+  if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 29 * escala);
+  y += 29 * escala * 1.5 + 29 * escala;
 
-  ctx.font = `bold ${23 * escala}px Georgia, serif`;
+  ctx.font = `bold ${32 * escala}px Georgia, serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText(config.firma, w / 2, y);
   }
-  y += 23 * escala * 1.3;
+  y += 32 * escala * 1.3;
 
   return dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, "‹ Ver frente");
 }
@@ -467,7 +372,7 @@ function zonaEnFracciones(zonaLocal, offsetSuperior, w, h) {
 function crearTexturaCara(config, diseñarFn, margenSuperiorFrac, areaUtilFrac) {
   const canvas = document.createElement("canvas");
   canvas.width = 720;
-  canvas.height = 1152; // mantiene la proporción 720/1152 = ancho/alto = 2/3.2, igual en ambas caras
+  canvas.height = 1548; // mantiene la proporción 720/1548 = ancho/alto = 2/4.3, igual en ambas caras
   const ctx = canvas.getContext("2d");
   const w = canvas.width;
   const h = canvas.height;
@@ -603,26 +508,44 @@ function crearFotoEnmarcada(config) {
   return grupoFoto;
 }
 
+// Devuelve un controlador para que el zoom de pellizco pueda superponerse a
+// la distancia base sin pelear con el recálculo de resize/orientationchange:
+// aplicar() siempre vuelve a multiplicar por el factorZoom vigente, nunca lo pisa.
 function ajustarCamaraResponsiva(camera, ancho, alto, margen = 1.45) {
+  let distanciaBase = margen;
+  let factorZoom = 1;
+
   function aplicar() {
     const aspecto = window.innerWidth / window.innerHeight;
     const vFov = THREE.MathUtils.degToRad(camera.fov);
     const distanciaPorAlto = (alto * margen) / (2 * Math.tan(vFov / 2));
     const distanciaPorAncho = (ancho * margen) / (2 * Math.tan(vFov / 2) * aspecto);
-    camera.position.z = Math.max(distanciaPorAlto, distanciaPorAncho);
+    distanciaBase = Math.max(distanciaPorAlto, distanciaPorAncho);
+    camera.position.z = distanciaBase * factorZoom;
   }
   aplicar();
   window.addEventListener("resize", aplicar);
   window.addEventListener("orientationchange", () => setTimeout(aplicar, 150));
+
+  function establecerZoom(factor) {
+    factorZoom = THREE.MathUtils.clamp(factor, ZOOM_MINIMO, ZOOM_MAXIMO);
+    camera.position.z = distanciaBase * factorZoom;
+  }
+
+  return { establecerZoom, obtenerZoom: () => factorZoom };
 }
 
 export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   const ancho = 2.0;
-  const alto = 3.2; // si cambia, actualizar también el canvas.height de crearTexturaCara (misma proporción)
+  const alto = 4.3; // si cambia, actualizar también el canvas.height de crearTexturaCara (misma proporción)
   const grosor = 0.08;
   const radioEsquina = 0.14;
 
-  ajustarCamaraResponsiva(camera, ancho, alto, 1.2);
+  const camaraResponsiva = ajustarCamaraResponsiva(camera, ancho, alto, 1.2);
+  // Límites del paneo de dos dedos, en unidades de mundo — evita que al
+  // deslizar se pierda la tarjeta de vista por completo.
+  const LIMITE_PAN_X = ancho * 0.9;
+  const LIMITE_PAN_Y = alto * 0.75;
 
   const grupo = new THREE.Group();
   scene.add(grupo);
@@ -692,9 +615,6 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
   sombra.position.set(0, -alto * 0.75, -1.2);
   scene.add(sombra);
 
-  // La bruma se crea al final, totalmente separada del contenedor que gira.
-  const bruma = crearBrumaCeleste(scene, camera);
-
   // --- Arrastrar para girar, con regreso a la posición de reposo ---
   let arrastre = { x: 0, y: 0 };
   let arrastrando = false;
@@ -737,14 +657,76 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
     }
   }
 
+  // --- Zoom y paneo de pellizco (dos dedos), convive con el arrastre de un dedo ---
+  // punterosActivos trackea cada dedo por su pointerId; con 2 activos se usan
+  // la distancia entre ellos (zoom) y su punto medio (paneo) contra el
+  // inicio del gesto — nunca contra "1" o el centro fijos, para que un
+  // segundo pellizco siga desde donde quedó el anterior en vez de saltar.
+  const punterosActivos = new Map();
+  let distanciaPellizcoInicial = null;
+  let zoomInicialPellizco = 1;
+  let puntoMedioInicial = { x: 0, y: 0 };
+  let panoInicial = { x: 0, y: 0 };
+
+  function distanciaEntrePunteros() {
+    const puntos = [...punterosActivos.values()];
+    return Math.hypot(puntos[0].x - puntos[1].x, puntos[0].y - puntos[1].y);
+  }
+  function puntoMedioPunteros() {
+    const puntos = [...punterosActivos.values()];
+    return { x: (puntos[0].x + puntos[1].x) / 2, y: (puntos[0].y + puntos[1].y) / 2 };
+  }
+
   function alPresionar(e) {
-    arrastrando = true;
-    inicio.x = e.clientX;
-    inicio.y = e.clientY;
-    inicioTiempo = performance.now();
-    distanciaMaxima = 0;
+    punterosActivos.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (punterosActivos.size === 2) {
+      distanciaPellizcoInicial = distanciaEntrePunteros();
+      zoomInicialPellizco = camaraResponsiva.obtenerZoom();
+      puntoMedioInicial = puntoMedioPunteros();
+      panoInicial = { x: camera.position.x, y: camera.position.y };
+      // Un pellizco nunca debe interpretarse como tap ni como arrastre de giro.
+      arrastrando = false;
+      distanciaMaxima = Infinity;
+      return;
+    }
+    if (punterosActivos.size === 1) {
+      arrastrando = true;
+      inicio.x = e.clientX;
+      inicio.y = e.clientY;
+      inicioTiempo = performance.now();
+      distanciaMaxima = 0;
+    }
   }
   function alMover(e) {
+    if (!punterosActivos.has(e.pointerId)) return;
+    punterosActivos.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (punterosActivos.size === 2 && distanciaPellizcoInicial) {
+      const distanciaActual = distanciaEntrePunteros();
+      camaraResponsiva.establecerZoom(zoomInicialPellizco * (distanciaPellizcoInicial / distanciaActual));
+
+      // El punto medio de los dos dedos arrastra la cámara en el plano de
+      // la tarjeta (z=0), convertido de píxeles de pantalla a unidades de
+      // mundo con lo que la cámara ve a esa profundidad — así el contenido
+      // "sigue" al dedo sin importar el nivel de zoom actual.
+      const puntoMedioActual = puntoMedioPunteros();
+      const dxPantalla = puntoMedioActual.x - puntoMedioInicial.x;
+      const dyPantalla = puntoMedioActual.y - puntoMedioInicial.y;
+      const { anchoVisible, altoVisible } = tamanoVisibleEnProfundidad(camera, 0);
+      camera.position.x = THREE.MathUtils.clamp(
+        panoInicial.x - (dxPantalla / window.innerWidth) * anchoVisible,
+        -LIMITE_PAN_X,
+        LIMITE_PAN_X
+      );
+      camera.position.y = THREE.MathUtils.clamp(
+        panoInicial.y + (dyPantalla / window.innerHeight) * altoVisible,
+        -LIMITE_PAN_Y,
+        LIMITE_PAN_Y
+      );
+      return;
+    }
+
     if (!arrastrando) return;
     const dx = e.clientX - inicio.x;
     const dy = e.clientY - inicio.y;
@@ -753,6 +735,10 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
     arrastre.x = THREE.MathUtils.clamp(-dy * 0.006, -0.55, 0.55);
   }
   function alSoltar(e) {
+    punterosActivos.delete(e.pointerId);
+    if (punterosActivos.size < 2) distanciaPellizcoInicial = null;
+    if (punterosActivos.size > 0) return;
+
     arrastrando = false;
     // Tap = movimiento mínimo y suelta rápida; si no, fue un arrastre para
     // girar la tarjeta y no debe activar el enlace.
@@ -760,10 +746,16 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
       manejarTap(e);
     }
   }
+  function alCancelar(e) {
+    punterosActivos.delete(e.pointerId);
+    if (punterosActivos.size < 2) distanciaPellizcoInicial = null;
+    if (punterosActivos.size === 0) arrastrando = false;
+  }
 
   window.addEventListener("pointerdown", alPresionar);
   window.addEventListener("pointermove", alMover);
   window.addEventListener("pointerup", alSoltar);
+  window.addEventListener("pointercancel", alCancelar);
 
   // Fracción del camino que queda por recorrer tras 1 segundo — usado como
   // 1 - K^delta (no un lerp de factor fijo), para que la velocidad no
@@ -794,10 +786,6 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
 
     sombra.scale.setScalar(1 - grupo.position.y * 0.15);
     sombra.material.opacity = 0.9 - Math.abs(grupo.position.y) * 0.4;
-
-    // Solo se copia la posición (el flote), nunca la rotación del contenedor.
-    bruma.grupoBruma.position.y = grupo.position.y;
-    bruma.actualizar(tiempo);
   }
 
   return { grupo, tarjeta, actualizar, alternarVista };
