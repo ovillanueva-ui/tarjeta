@@ -138,6 +138,83 @@ function dividirLineas(ctx, texto, anchoMax) {
   return lineas;
 }
 
+// Palabras clave de la oración del dorso (config.mensaje) que se dibujan en
+// cursiva — selección editorial fija, no derivada del contenido: los
+// nombres de las virtudes que la oración repite en tríos (fortaleza /
+// serenidad / esperanza, fe / valentía / sabiduría, luz / amor / fe) más las
+// dos palabras del tercer párrafo que dan el contraste ("sin perder la
+// ternura" / "sin dejar de amar").
+const PALABRAS_CLAVE_ORACION = new Set([
+  "fortaleza",
+  "serenidad",
+  "esperanza",
+  "fe",
+  "valentía",
+  "sabiduría",
+  "ternura",
+  "amar",
+  "luz",
+  "amor",
+]);
+
+function limpiarPalabra(palabra) {
+  return palabra.toLowerCase().replace(/^[^a-zñáéíóúü]+|[^a-zñáéíóúü]+$/gi, "");
+}
+
+// Como dividirLineas, pero cada palabra puede tener su propia fuente
+// (regular o cursiva, según si es una de palabrasClave) — necesario porque
+// canvas 2D no soporta texto con estilos mixtos en un solo fillText. Mide
+// cada palabra con la fuente que le corresponde antes de decidir el salto
+// de línea, así el ancho real (ligeramente distinto en cursiva) sí se
+// respeta al envolver.
+function dividirLineasConEnfasis(ctx, texto, anchoMax, fontRegular, fontCursiva, palabrasClave) {
+  ctx.font = fontRegular;
+  const anchoEspacio = ctx.measureText(" ").width;
+  const palabras = String(texto).split(" ");
+  const lineas = [];
+  let lineaActual = [];
+  let anchoLineaActual = 0;
+
+  for (const palabra of palabras) {
+    const esClave = palabrasClave.has(limpiarPalabra(palabra));
+    ctx.font = esClave ? fontCursiva : fontRegular;
+    const anchoPalabra = ctx.measureText(palabra).width;
+    const anchoConEspacio = lineaActual.length ? anchoEspacio + anchoPalabra : anchoPalabra;
+
+    if (anchoLineaActual + anchoConEspacio > anchoMax && lineaActual.length) {
+      lineas.push(lineaActual);
+      lineaActual = [{ texto: palabra, cursiva: esClave }];
+      anchoLineaActual = anchoPalabra;
+    } else {
+      lineaActual.push({ texto: palabra, cursiva: esClave });
+      anchoLineaActual += anchoConEspacio;
+    }
+  }
+  if (lineaActual.length) lineas.push(lineaActual);
+  return { lineas, anchoEspacio };
+}
+
+// Dibuja una línea de tokens con estilos mixtos, centrada en centroX. Como
+// cada palabra puede medir distinto según su fuente, se calcula el ancho
+// total primero y se dibuja alineado a la izquierda desde ese punto —
+// requiere ctx.textAlign = "left" (el llamador lo restaura después).
+function dibujarLineaConEnfasis(ctx, tokens, centroX, y, fontRegular, fontCursiva, anchoEspacio) {
+  let anchoTotal = anchoEspacio * (tokens.length - 1);
+  const anchos = tokens.map((t) => {
+    ctx.font = t.cursiva ? fontCursiva : fontRegular;
+    const ancho = ctx.measureText(t.texto).width;
+    anchoTotal += ancho;
+    return ancho;
+  });
+
+  let x = centroX - anchoTotal / 2;
+  tokens.forEach((t, i) => {
+    ctx.font = t.cursiva ? fontCursiva : fontRegular;
+    ctx.fillText(t.texto, x, y);
+    x += anchos[i] + anchoEspacio;
+  });
+}
+
 function dibujarMarcoDorado(ctx, w, h) {
   ctx.strokeStyle = "rgba(20, 45, 78, 0.8)"; // MARCO (línea), #142D4E con la misma transparencia que tenía antes
   ctx.lineWidth = 2;
@@ -216,7 +293,12 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText("En memoria de", w / 2, y);
   }
-  y += 45 * escala * 1.3 + ESPACIO_GRANDE * escala;
+  // "En memoria de" nunca pasa de una línea y ninguna de sus letras tiene
+  // descendente (ni una "j/p/q/y"), así que su altura de línea puede ir casi
+  // a 1.0 sin riesgo de recortar nada. El hueco hacia la foto es un valor
+  // puntual (8, menor que ESPACIO_PEQUENO=21) solo para este punto — no se
+  // toca la constante compartida, que sigue igual entre fechas y mensaje.
+  y += 45 * escala * 1.0 + 8 * escala;
 
   // Foto y nombre apilados, centrados en w/2, cada uno como un bloque
   // independiente del flujo vertical — igual que todo lo demás del frente.
@@ -271,21 +353,28 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
     ctx.fillStyle = gradiente;
     lineasNombre.forEach((l, i) => ctx.fillText(l, w / 2, y + i * alturaLineaNombre));
   }
-  y += (lineasNombre.length - 1) * alturaLineaNombre + descensoNombre + ESPACIO_MEDIO * escala;
+  const baseUltimaLineaNombre = y + (lineasNombre.length - 1) * alturaLineaNombre;
 
-  ctx.font = `italic ${36 * escala}px "Nunito", sans-serif`;
-  if (dibujar) {
-    ctx.fillStyle = ORO_OSCURO;
-    ctx.fillText(`"${config.apodoCarinoso}"`, w / 2, y);
-  }
-  y += 36 * escala * 1.4 + ESPACIO_PEQUENO * escala; // apodo↔fechas: elementos directamente relacionados
+  // Nombre y fechas son un solo bloque de identidad (ya sin apodo, que se
+  // quitó del contenido). Se mide el ascenso real de las fechas, igual que
+  // ya se hacía con el nombre, para que el hueco visible sea el que se pide
+  // (HUECO_IDENTIDAD) y no "lo que sobre" tras restar el descenso del nombre.
+  const HUECO_IDENTIDAD = 40;
 
-  ctx.font = `${34 * escala}px "Nunito", sans-serif`;
+  ctx.font = `bold ${24 * escala}px "Nunito", sans-serif`;
+  const textoFechas = `${config.nacimiento}  —  ${config.fallecimiento}`;
+  const metricasFechas = ctx.measureText(textoFechas);
+  const ascensoFechas = metricasFechas.actualBoundingBoxAscent || 24 * escala * 0.78;
+  const descensoFechas = metricasFechas.actualBoundingBoxDescent || 24 * escala * 0.22;
+  y = baseUltimaLineaNombre + descensoNombre + HUECO_IDENTIDAD * escala + ascensoFechas;
   if (dibujar) {
     ctx.fillStyle = TINTA;
-    ctx.fillText(`${config.nacimiento}  —  ${config.fallecimiento}`, w / 2, y);
+    ctx.fillText(textoFechas, w / 2, y);
   }
-  y += 34 * escala * 1.5 + ESPACIO_GRANDE * escala;
+  // Valor puntual, distinto de ESPACIO_GRANDE (que el dorso comparte en 3
+  // puntos) — así este hueco crece sin mover nada en el dorso.
+  const GAP_FECHAS_MENSAJE = 105;
+  y += descensoFechas + GAP_FECHAS_MENSAJE * escala;
 
   if (Array.isArray(config.mensajeFrontal)) {
     ctx.font = `${28 * escala}px "Nunito", sans-serif`;
@@ -335,11 +424,11 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
 function diseñarDorso(ctx, w, config, escala, dibujar) {
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  const anchoTexto = w * 0.8;
+  const anchoTexto = w * (1 - MARGEN_CONTENIDO * 2); // mismo margen lateral que el frente
   let y = 0;
 
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 29 * escala);
-  y += 29 * escala * 1.5 + 35 * escala;
+  y += 29 * escala * 1.5 + ESPACIO_GRANDE * escala;
 
   ctx.font = `bold ${34 * escala}px "Nunito", sans-serif`;
   const lineasDed = dividirLineas(ctx, config.dedicatoria, anchoTexto);
@@ -347,28 +436,48 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
     ctx.fillStyle = TINTA;
     lineasDed.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 43 * escala));
   }
-  y += lineasDed.length * 43 * escala + 41 * escala;
+  y += lineasDed.length * 43 * escala + ESPACIO_GRANDE * escala;
 
-  ctx.font = `${28 * escala}px "Nunito", sans-serif`;
+  const fontOracionRegular = `${28 * escala}px "Nunito", sans-serif`;
+  const fontOracionCursiva = `italic bold ${28 * escala}px "Nunito", sans-serif`;
   for (const linea of config.mensaje) {
-    const lineasMsg = dividirLineas(ctx, linea, anchoTexto);
+    const { lineas: lineasMsg, anchoEspacio } = dividirLineasConEnfasis(
+      ctx,
+      linea,
+      anchoTexto,
+      fontOracionRegular,
+      fontOracionCursiva,
+      PALABRAS_CLAVE_ORACION
+    );
     if (dibujar) {
-      ctx.fillStyle = "#465365";
-      lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 38 * escala));
+      ctx.fillStyle = TINTA;
+      ctx.textAlign = "left";
+      lineasMsg.forEach((tokens, i) =>
+        dibujarLineaConEnfasis(
+          ctx,
+          tokens,
+          w / 2,
+          y + i * 38 * escala,
+          fontOracionRegular,
+          fontOracionCursiva,
+          anchoEspacio
+        )
+      );
+      ctx.textAlign = "center";
     }
-    y += lineasMsg.length * 38 * escala + 21 * escala;
+    y += lineasMsg.length * 38 * escala + ESPACIO_PEQUENO * escala;
   }
 
-  y += 14 * escala;
+  y += (ESPACIO_MEDIO - ESPACIO_PEQUENO) * escala; // el párrafo anterior ya dejó ESPACIO_PEQUENO; esto lo completa a ESPACIO_MEDIO (mismo patrón que diseñarFrente antes de fraseDestacada)
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 29 * escala);
-  y += 29 * escala * 1.5 + 29 * escala;
+  y += 29 * escala * 1.5 + ESPACIO_GRANDE * escala;
 
-  ctx.font = `bold ${32 * escala}px "Nunito", sans-serif`;
+  ctx.font = `bold ${42 * escala}px "Nunito", sans-serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText(config.firma, w / 2, y);
   }
-  y += 32 * escala * 1.3;
+  y += 42 * escala * 1.3;
 
   return dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, "‹ Ver frente");
 }
