@@ -22,7 +22,6 @@ function llenarContenidoAccesible(config, contenedor) {
     contenedor.appendChild(img);
   }
   agregar("h1", `En memoria de ${config.nombre}`);
-  agregar("p", `"${config.apodoCarinoso}"`);
   agregar("p", `${config.nacimiento} — ${config.fallecimiento}`);
   (config.mensajeFrontal || []).forEach((linea) => agregar("p", linea));
   if (config.fraseDestacada) agregar("p", config.fraseDestacada);
