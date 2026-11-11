@@ -1,10 +1,18 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "./vendor/three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
-const ORO = "#c9a227"; // solo para flor de lis/marco decorativos — no usar en texto, falla contraste AA
-const ORO_OSCURO = "#84661e"; // 4.5:1 de contraste sobre el fondo de la tarjeta — no bajarlo
-const ORO_TEXTO = "#806719"; // variante de ORO con 4.5:1 de contraste, para texto real (no decorativo)
-const TINTA = "#3a2a10";
+// Pedido explícito del usuario: unificar todas las tonalidades doradas en
+// E5C98E, incluidos los usos en texto real (ORO_OSCURO/ORO_TEXTO) — contraste
+// resultante contra el fondo de la tarjeta (~1.5:1) queda muy por debajo del
+// mínimo de accesibilidad (4.5:1), aceptado a sabiendas por el usuario.
+const ORO = "#142d4e"; // decorativo: florón, puntos de esquina del marco
+// Textos en oro → C6A15B (contraste ~2.27:1 contra el fondo de la tarjeta,
+// sigue bajo el mínimo AA de 4.5:1 pero mejor que el E5C98E anterior; el
+// usuario ya aceptó antes bajar el contraste a cambio de este tono).
+const ORO_OSCURO = "#c6a15b"; // texto: "En memoria de", apodo, frase destacada, lugar, firma, degradado del nombre
+const ORO_TEXTO = "#c6a15b"; // texto: enlace "ver dorso/frente", degradado del nombre
+const TINTA = "#465365"; // texto no dorado: fechas, mensajeFrontal, fraseCierre, dedicatoria
+const MARCO = "#e5c98e"; // línea del marco decorativo y marco de la foto
 const ESCALA_MINIMA_TEXTO = 0.6; // nunca encoger el texto más allá de este punto; preferible recortar que ilegible
 
 // Límites del zoom de pellizco, como factor sobre la distancia de cámara ya
@@ -37,6 +45,23 @@ const ESPACIO_PEQUENO = 21; // entre elementos directamente relacionados (apodo�
 const ESPACIO_MEDIO = 33; // entre secciones distintas del frente
 const ESPACIO_GRANDE = 38; // antes/después de los anclas visuales principales (encabezado, fechas)
 
+// TEMPORAL — pedido explícito del usuario en la rama paleta-colores: marcar
+// en rojo, dentro del propio código, el nombre de cada elemento/color para
+// poder señalar con exactitud qué cambiar. Se depura cuando el usuario lo diga.
+const MODO_ETIQUETAS_DEBUG = true;
+// No suma altura (no toca "y") — se dibuja dentro del espacio entre bloques
+// que ya existe, para no desalinear el sistema de medición/escala real.
+function etiquetaDebug(ctx, w, y, escala, texto, dibujar) {
+  if (!MODO_ETIQUETAS_DEBUG || !dibujar) return;
+  ctx.save();
+  ctx.font = `bold ${13 * escala}px monospace`;
+  ctx.fillStyle = "red";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(`« ${texto} »`, w / 2, y);
+  ctx.restore();
+}
+
 export function hayWebGL() {
   try {
     const canvas = document.createElement("canvas");
@@ -51,7 +76,7 @@ export function hayWebGL() {
 
 export function inicializarEscena(canvas) {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf7f3e7); // variante clara del Pantone 11-0106 TCX
+  scene.background = new THREE.Color(0xfaf7f0);
 
   const camera = new THREE.PerspectiveCamera(
     40,
@@ -114,7 +139,7 @@ function dividirLineas(ctx, texto, anchoMax) {
 }
 
 function dibujarMarcoDorado(ctx, w, h) {
-  ctx.strokeStyle = "rgba(201, 162, 39, 0.8)";
+  ctx.strokeStyle = "rgba(20, 45, 78, 0.8)"; // MARCO (línea), #142D4E con la misma transparencia que tenía antes
   ctx.lineWidth = 2;
   ctx.strokeRect(MARGEN_MARCO, MARGEN_MARCO, w - MARGEN_MARCO * 2, h - MARGEN_MARCO * 2);
 
@@ -328,7 +353,7 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
   for (const linea of config.mensaje) {
     const lineasMsg = dividirLineas(ctx, linea, anchoTexto);
     if (dibujar) {
-      ctx.fillStyle = "#2a1d0c";
+      ctx.fillStyle = "#465365";
       lineasMsg.forEach((l, i) => ctx.fillText(l, w / 2, y + i * 38 * escala));
     }
     y += lineasMsg.length * 38 * escala + 21 * escala;
@@ -349,7 +374,7 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
 }
 
 function dibujarFondoTarjeta(ctx, w, h) {
-  ctx.fillStyle = "#f0ebd7";
+  ctx.fillStyle = "#FAF7F0";
   ctx.fillRect(0, 0, w, h);
   dibujarMarcoDorado(ctx, w, h);
 }
@@ -482,7 +507,7 @@ function crearFotoEnmarcada(config) {
         RADIO_ESQUINA_FOTO * SOBRESALIDA_MARCO_FOTO
       )
     ),
-    new THREE.MeshBasicMaterial({ color: ORO_OSCURO })
+    new THREE.MeshBasicMaterial({ color: MARCO })
   );
   marco.position.z = -0.001;
   grupoFoto.add(marco);
@@ -552,7 +577,7 @@ export function crearTarjetaFlotante(scene, camera, config, onCambioVista) {
 
   const geometria = new RoundedBoxGeometry(ancho, alto, grosor, 7, radioEsquina);
   const material = new THREE.MeshStandardMaterial({
-    color: 0xf0ebd7, // Pantone 11-0106 TCX (Sweet Corn / off-white)
+    color: 0x7086a3, // canto/grosor de la tarjeta, visible en los bordes del box
     roughness: 0.85,
     metalness: 0,
   });
