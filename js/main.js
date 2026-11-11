@@ -47,6 +47,17 @@ if (!hayWebGL()) {
       '<p style="font-family:sans-serif;text-align:center;margin-top:40vh;">Este navegador no soporta WebGL.</p>';
   }
 } else {
+  // Las texturas de la tarjeta se dibujan en un canvas 2D con ctx.font —
+  // si Nunito (Google Fonts) todavía no terminó de descargarse, ese primer
+  // dibujo cae al tipo de letra del sistema y no se redibuja solo cuando la
+  // fuente llega. document.fonts.load() fuerza la descarga explícitamente
+  // de cada variante usada (regular/bold/itálica) antes de crear la tarjeta.
+  await Promise.all(
+    ["400", "700", "italic 400", "italic 700"].map((variante) =>
+      document.fonts.load(`${variante} 16px Nunito`).catch(() => {})
+    )
+  );
+
   const { scene, camera, renderer, clock } = inicializarEscena(canvas);
   const tarjeta = crearTarjetaFlotante(scene, camera, CONFIG, (mostrandoDorso) => {
     if (botonGirar) {
