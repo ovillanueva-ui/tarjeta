@@ -135,7 +135,7 @@ function dibujarMarcoDorado(ctx, w, h) {
 function dibujarFloron(ctx, x, y, color, tamano) {
   ctx.save();
   ctx.fillStyle = color;
-  ctx.font = `${tamano}px Georgia, serif`;
+  ctx.font = `${tamano}px "Nunito", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("✦", x, y);
@@ -151,7 +151,7 @@ function dibujarFloron(ctx, x, y, color, tamano) {
 // fracciones 0–1 (zonaEnFracciones).
 function dibujarEnlaceVoltear(ctx, w, y, escala, dibujar, etiqueta) {
   y += 26 * escala;
-  ctx.font = `italic ${24 * escala}px Georgia, serif`;
+  ctx.font = `italic ${24 * escala}px "Nunito", sans-serif`;
   const anchoEtiqueta = ctx.measureText(etiqueta).width;
 
   if (dibujar) {
@@ -186,7 +186,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   const anchoTexto = w * (1 - MARGEN_CONTENIDO * 2);
   let y = 0;
 
-  ctx.font = `italic ${45 * escala}px Georgia, serif`;
+  ctx.font = `italic ${45 * escala}px "Nunito", sans-serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText("En memoria de", w / 2, y);
@@ -221,12 +221,12 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   // en anchoTexto a ese tamaño, se achica lo mínimo necesario para que entre
   // — medido de verdad con measureText, no a ojo.
   const TAMANO_NOMBRE = 72;
-  ctx.font = `bold ${TAMANO_NOMBRE * escala}px Georgia, serif`;
+  ctx.font = `bold ${TAMANO_NOMBRE * escala}px "Nunito", sans-serif`;
   const anchoMaximoLinea = Math.max(...lineasNombre.map((l) => ctx.measureText(l).width));
   const factorAjuste = Math.min(1, anchoTexto / anchoMaximoLinea);
   const tamanoNombreFinal = TAMANO_NOMBRE * factorAjuste;
   const alturaLineaNombre = tamanoNombreFinal * (48 / 46) * escala; // misma proporción alto-de-línea/tamaño que ya usaba el resto del archivo
-  ctx.font = `bold ${tamanoNombreFinal * escala}px Georgia, serif`;
+  ctx.font = `bold ${tamanoNombreFinal * escala}px "Nunito", sans-serif`;
 
   // Con textBaseline="alphabetic", fillText dibuja hacia ARRIBA desde la Y
   // que recibe (el ascenso de la fuente) — con texto grande (54px, ~40px de
@@ -248,14 +248,14 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   }
   y += (lineasNombre.length - 1) * alturaLineaNombre + descensoNombre + ESPACIO_MEDIO * escala;
 
-  ctx.font = `italic ${36 * escala}px Georgia, serif`;
+  ctx.font = `italic ${36 * escala}px "Nunito", sans-serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText(`"${config.apodoCarinoso}"`, w / 2, y);
   }
   y += 36 * escala * 1.4 + ESPACIO_PEQUENO * escala; // apodo↔fechas: elementos directamente relacionados
 
-  ctx.font = `${34 * escala}px Georgia, serif`;
+  ctx.font = `${34 * escala}px "Nunito", sans-serif`;
   if (dibujar) {
     ctx.fillStyle = TINTA;
     ctx.fillText(`${config.nacimiento}  —  ${config.fallecimiento}`, w / 2, y);
@@ -263,7 +263,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   y += 34 * escala * 1.5 + ESPACIO_GRANDE * escala;
 
   if (Array.isArray(config.mensajeFrontal)) {
-    ctx.font = `${28 * escala}px Georgia, serif`;
+    ctx.font = `${28 * escala}px "Nunito", sans-serif`;
     for (const linea of config.mensajeFrontal) {
       const lineasMsg = dividirLineas(ctx, linea, anchoTexto);
       if (dibujar) {
@@ -276,7 +276,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
 
   if (config.fraseDestacada) {
     y += (ESPACIO_MEDIO - ESPACIO_PEQUENO) * escala; // el párrafo anterior ya dejó ESPACIO_PEQUENO; esto lo completa a ESPACIO_MEDIO
-    ctx.font = `bold ${31 * escala}px Georgia, serif`;
+    ctx.font = `bold ${31 * escala}px "Nunito", sans-serif`;
     const lineasDestacada = dividirLineas(ctx, config.fraseDestacada, anchoTexto * 0.94);
     if (dibujar) {
       ctx.fillStyle = ORO_OSCURO;
@@ -286,7 +286,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   }
 
   if (config.fraseCierre) {
-    ctx.font = `italic ${29 * escala}px Georgia, serif`;
+    ctx.font = `italic ${29 * escala}px "Nunito", sans-serif`;
     const lineasCierre = dividirLineas(ctx, config.fraseCierre, anchoTexto);
     if (dibujar) {
       ctx.fillStyle = TINTA;
@@ -296,7 +296,7 @@ function diseñarFrente(ctx, w, config, escala, dibujar) {
   }
 
   if (config.lugar) {
-    ctx.font = `${26 * escala}px Georgia, serif`;
+    ctx.font = `${26 * escala}px "Nunito", sans-serif`;
     if (dibujar) {
       ctx.fillStyle = ORO_OSCURO;
       ctx.fillText(config.lugar, w / 2, y);
@@ -316,7 +316,7 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 29 * escala);
   y += 29 * escala * 1.5 + 35 * escala;
 
-  ctx.font = `bold ${34 * escala}px Georgia, serif`;
+  ctx.font = `bold ${34 * escala}px "Nunito", sans-serif`;
   const lineasDed = dividirLineas(ctx, config.dedicatoria, anchoTexto);
   if (dibujar) {
     ctx.fillStyle = TINTA;
@@ -324,7 +324,7 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
   }
   y += lineasDed.length * 43 * escala + 41 * escala;
 
-  ctx.font = `${28 * escala}px Georgia, serif`;
+  ctx.font = `${28 * escala}px "Nunito", sans-serif`;
   for (const linea of config.mensaje) {
     const lineasMsg = dividirLineas(ctx, linea, anchoTexto);
     if (dibujar) {
@@ -338,7 +338,7 @@ function diseñarDorso(ctx, w, config, escala, dibujar) {
   if (dibujar) dibujarFloron(ctx, w / 2, y, ORO, 29 * escala);
   y += 29 * escala * 1.5 + 29 * escala;
 
-  ctx.font = `bold ${32 * escala}px Georgia, serif`;
+  ctx.font = `bold ${32 * escala}px "Nunito", sans-serif`;
   if (dibujar) {
     ctx.fillStyle = ORO_OSCURO;
     ctx.fillText(config.firma, w / 2, y);

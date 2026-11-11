@@ -34,7 +34,7 @@ html, body {
   border: 1px solid #84661e;
   background: #f7f3e7;
   color: #84661e;
-  font: italic 14px Georgia, serif;
+  font: italic 14px "Nunito", sans-serif;
   cursor: pointer;
 }
 
